@@ -267,6 +267,8 @@ def project_page(request: HttpRequest, project_id: int):
     effort_by_role_json = json.dumps(project.effort_hours_by_role or {})
     capacity_by_role_json = json.dumps(project.capacity_hours_by_role or {})
 
+    # capacity_effort = round((project.capacity_hours / project.effort_hours) * 100) if project.capacity_hours and project.effort_hours else ""
+
     return render(
         request,
         "app/project_detail.html",
@@ -276,5 +278,6 @@ def project_page(request: HttpRequest, project_id: int):
             "deadline_iso": deadline_iso,
             "effort_by_role_json": effort_by_role_json,
             "capacity_by_role_json": capacity_by_role_json,
+            # "capacity_effort": capacity_effort,
         },
     )
