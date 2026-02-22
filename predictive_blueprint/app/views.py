@@ -4,7 +4,7 @@ import json
 from datetime import date
 
 from django.db.models import Q
-from django.shortcuts import render,redirect
+from django.shortcuts import render, redirect
 from django.http import JsonResponse, HttpRequest
 from django.views.decorators.csrf import csrf_exempt
 from django.db import transaction
@@ -16,6 +16,38 @@ from app.services.estimator import run_estimation
 
 def _json_error(message: str, status: int = 400) -> JsonResponse:
     return JsonResponse({"ok": False, "error": message}, status=status)
+
+
+def _is_json_request(request: HttpRequest) -> bool:
+    ct = (request.content_type or "").lower()
+    # handles "application/json" and "application/json; charset=utf-8"
+    return "application/json" in ct
+
+
+def _parse_payload(request: HttpRequest) -> tuple[dict, bool] | tuple[None, bool]:
+    """
+    Returns (payload, is_json). payload is dict. If invalid JSON, returns (None, True).
+    """
+    is_json = _is_json_request(request)
+    if is_json:
+        try:
+            payload = json.loads(request.body.decode("utf-8") or "{}")
+            if not isinstance(payload, dict):
+                return None, True
+            return payload, True
+        except Exception:
+            return None, True
+
+    # form POST fallback
+    payload = dict(request.POST.items())
+    # allow tech_stack as "a,b,c"
+    if "tech_stack" in payload:
+        payload["tech_stack"] = [
+            s.strip()
+            for s in (payload.get("tech_stack") or "").split(",")
+            if s.strip()
+        ]
+    return payload, False
 
 
 @csrf_exempt
@@ -61,36 +93,41 @@ def intake(request: HttpRequest) -> JsonResponse:
     except ValueError:
         return _json_error("Deadline must be YYYY-MM-DD")
 
-    project = Project.objects.create(
-        title=title,
-        description=description,
-        tech_stack=tech_stack,
-        deadline=deadline,
-    )
+    with transaction.atomic():
+        project = Project.objects.create(
+            title=title,
+            description=description,
+            tech_stack=[str(x).strip() for x in tech_stack if str(x).strip()],
+            deadline=deadline,
+        )
 
-    for member in team:
-        role = str(member.get("role", "")).strip().upper()
-        seniority = str(member.get("seniority", "")).strip().upper()
+        for member in team:
+            if not isinstance(member, dict):
+                transaction.set_rollback(True)
+                return _json_error("Each team member must be an object with role/seniority")
 
-        if role not in {"FE", "BE", "DEVOPS"}:
-            project.delete()
-            return _json_error("Team role must be one of: FE, BE, DEVOPS")
+            role = str(member.get("role", "")).strip().upper()
+            seniority = str(member.get("seniority", "")).strip().upper()
 
-        if seniority not in {"JUNIOR", "MID", "SENIOR"}:
-            project.delete()
-            return _json_error("Team seniority must be one of: JUNIOR, MID, SENIOR")
+            if role not in {"FE", "BE", "DEVOPS"}:
+                transaction.set_rollback(True)
+                return _json_error("Team role must be one of: FE, BE, DEVOPS")
 
-        Dev.objects.create(project=project, role=role, seniority=seniority)
+            if seniority not in {"JUNIOR", "MID", "SENIOR"}:
+                transaction.set_rollback(True)
+                return _json_error("Team seniority must be one of: JUNIOR, MID, SENIOR")
 
-    marks = get_complexity_marks(title=title, description=description, tech_stack=tech_stack)
-    project.complexity_score = marks["complexity_score"]
-    project.estimated_features_count = marks["estimated_features_count"]
-    project.tech_difficulty = marks["tech_difficulty"]
-    project.integration_complexity = marks["integration_complexity"]
-    project.uncertainty_factor = marks["uncertainty_factor"]
-    project.save()
+            Dev.objects.create(project=project, role=role, seniority=seniority)
 
-    run_estimation(project)
+        marks = get_complexity_marks(title=title, description=description, tech_stack=project.tech_stack)
+        project.complexity_score = marks["complexity_score"]
+        project.estimated_features_count = marks["estimated_features_count"]
+        project.tech_difficulty = marks["tech_difficulty"]
+        project.integration_complexity = marks["integration_complexity"]
+        project.uncertainty_factor = marks["uncertainty_factor"]
+        project.save()
+
+        run_estimation(project)
 
     return JsonResponse(
         {
@@ -106,7 +143,9 @@ def intake(request: HttpRequest) -> JsonResponse:
 def project_detail(request: HttpRequest, project_id: int) -> JsonResponse:
     """
     GET -> project JSON
-    PUT/PATCH/POST -> update fields + re-run estimation (and Gemini marks if title/desc/stack changed)
+    PUT/PATCH/POST -> update fields + re-run estimation
+    - re-run Gemini marks if title/desc/stack changed
+    - update team if "team" is provided
     DELETE -> delete project
     """
     try:
@@ -151,10 +190,95 @@ def project_detail(request: HttpRequest, project_id: int) -> JsonResponse:
         )
 
     if request.method in {"PUT", "PATCH", "POST"}:
-        # Detect whether this came from fetch(JSON) or a browser form POST
-        is_json = bool(request.content_type and "application/json" in request.content_type)
+        parsed, is_json = _parse_payload(request)
+        if parsed is None and is_json:
+            return _json_error("Invalid JSON body")
 
-        # 1) Parse payload
+        payload = parsed or {}
+
+        rerun_gemini = False
+
+        with transaction.atomic():
+            # --- fields ---
+            if "title" in payload:
+                title = str(payload.get("title", "")).strip()
+                if not title:
+                    return _json_error("Title cannot be empty")
+                if title != project.title:
+                    project.title = title
+                    rerun_gemini = True
+
+            if "description" in payload:
+                desc = str(payload.get("description", "")).strip()
+                if desc != (project.description or ""):
+                    project.description = desc
+                    rerun_gemini = True
+
+            if "tech_stack" in payload:
+                tech_stack = payload.get("tech_stack", [])
+                if isinstance(tech_stack, str):
+                    tech_stack = [s.strip() for s in tech_stack.split(",") if s.strip()]
+                if not isinstance(tech_stack, list):
+                    return _json_error("'tech_stack' must be a list of strings")
+                cleaned = [str(x).strip() for x in tech_stack if str(x).strip()]
+                if cleaned != (project.tech_stack or []):
+                    project.tech_stack = cleaned
+                    rerun_gemini = True
+
+            if "deadline" in payload:
+                deadline_str = str(payload.get("deadline", "")).strip()
+                if not deadline_str:
+                    return _json_error("Deadline cannot be empty (YYYY-MM-DD)")
+                try:
+                    new_deadline = date.fromisoformat(deadline_str)
+                except ValueError:
+                    return _json_error("Deadline must be YYYY-MM-DD")
+                if new_deadline != project.deadline:
+                    project.deadline = new_deadline
+
+            # --- team updates ---
+            if "team" in payload:
+                team = payload.get("team", [])
+                if not isinstance(team, list):
+                    return _json_error("'team' must be a list")
+
+                # Replace roster fully (simple + reliable)
+                project.devs.all().delete()
+
+                for member in team:
+                    if not isinstance(member, dict):
+                        return _json_error("Each team member must be an object with role/seniority")
+
+                    role = str(member.get("role", "")).strip().upper()
+                    seniority = str(member.get("seniority", "")).strip().upper()
+
+                    if role not in {"FE", "BE", "DEVOPS"}:
+                        return _json_error("Team role must be one of: FE, BE, DEVOPS")
+
+                    if seniority not in {"JUNIOR", "MID", "SENIOR"}:
+                        return _json_error("Team seniority must be one of: JUNIOR, MID, SENIOR")
+
+                    Dev.objects.create(project=project, role=role, seniority=seniority)
+
+            project.save()
+
+            # --- recompute marks if needed ---
+            if rerun_gemini:
+                marks = get_complexity_marks(
+                    title=project.title,
+                    description=project.description or "",
+                    tech_stack=project.tech_stack or [],
+                )
+                project.complexity_score = marks["complexity_score"]
+                project.estimated_features_count = marks["estimated_features_count"]
+                project.tech_difficulty = marks["tech_difficulty"]
+                project.integration_complexity = marks["integration_complexity"]
+                project.uncertainty_factor = marks["uncertainty_factor"]
+                project.save()
+
+            # Always re-run estimation after any update (team/deadline/marks/etc.)
+            run_estimation(project)
+
         if is_json:
             return JsonResponse(
                 {
@@ -164,68 +288,7 @@ def project_detail(request: HttpRequest, project_id: int) -> JsonResponse:
                     "red_reasons": project.red_reasons,
                 }
             )
-        else:
-            payload = dict(request.POST.items())
-            if "tech_stack" in payload:
-                payload["tech_stack"] = [
-                    s.strip()
-                    for s in (payload.get("tech_stack") or "").split(",")
-                    if s.strip()
-                ]
 
-        rerun_gemini = False
-
-        # 2) Apply updates
-        if "title" in payload:
-            title = str(payload.get("title", "")).strip()
-            if not title:
-                return _json_error("Title cannot be empty")
-            project.title = title
-            rerun_gemini = True
-
-        if "description" in payload:
-            project.description = str(payload.get("description", "")).strip()
-            rerun_gemini = True
-
-        if "tech_stack" in payload:
-            tech_stack = payload.get("tech_stack", [])
-            if not isinstance(tech_stack, list):
-                return _json_error("'tech_stack' must be a list of strings")
-            project.tech_stack = [str(x).strip() for x in tech_stack if str(x).strip()]
-            rerun_gemini = True
-
-        if "deadline" in payload:
-            deadline_str = str(payload.get("deadline", "")).strip()
-            if not deadline_str:
-                return _json_error("Deadline cannot be empty (YYYY-MM-DD)")
-            try:
-                project.deadline = date.fromisoformat(deadline_str)
-            except ValueError:
-                return _json_error("Deadline must be YYYY-MM-DD")
-
-        # 3) Save + recompute
-        project.save()
-
-        if rerun_gemini:
-            marks = get_complexity_marks(
-                title=project.title,
-                description=project.description,
-                tech_stack=project.tech_stack,
-            )
-            project.complexity_score = marks["complexity_score"]
-            project.estimated_features_count = marks["estimated_features_count"]
-            project.tech_difficulty = marks["tech_difficulty"]
-            project.integration_complexity = marks["integration_complexity"]
-            project.uncertainty_factor = marks["uncertainty_factor"]
-            project.save()
-
-        run_estimation(project)
-
-        # 4) Response: JSON for fetch, redirect for browser form
-        if is_json:
-            return JsonResponse({"ok": True, "project_id": project.id})
-
-        # browser form POST: redirect back to HTML page
         return redirect("project_page", project_id=project.id)
 
     if request.method == "DELETE":
@@ -233,6 +296,7 @@ def project_detail(request: HttpRequest, project_id: int) -> JsonResponse:
         return JsonResponse({"ok": True})
 
     return _json_error("Method not allowed", 405)
+
 
 # ------------------------------
 # Frontend pages (HTML)
@@ -265,8 +329,6 @@ def project_page(request: HttpRequest, project_id: int):
     effort_by_role_json = json.dumps(project.effort_hours_by_role or {})
     capacity_by_role_json = json.dumps(project.capacity_hours_by_role or {})
 
-    # capacity_effort = round((project.capacity_hours / project.effort_hours) * 100) if project.capacity_hours and project.effort_hours else ""
-
     return render(
         request,
         "app/project_detail.html",
@@ -276,6 +338,5 @@ def project_page(request: HttpRequest, project_id: int):
             "deadline_iso": deadline_iso,
             "effort_by_role_json": effort_by_role_json,
             "capacity_by_role_json": capacity_by_role_json,
-            # "capacity_effort": capacity_effort,
         },
     )
