@@ -5,16 +5,16 @@
 
 {% block head_extra %}
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2"></script>
 {% endblock %}
 
 {% block content %}
 <div class="d-flex flex-wrap gap-3 align-items-start justify-content-between mb-3">
   <div>
-    <h1 class="h4 mb-1">{{ project.title }}</h1>
-    <div class="text-secondary">Project ID <span class="mono">{{ project.id }}</span> · Deadline <span class="mono">{{ project.deadline|date:"Y-m-d" }}</span></div>
+    <h1 class="h4 mb-1 mx-5">{{ project.title }}</h1>
+    <div class="text-secondary mx-5">Project ID <span class="mono">{{ project.id }}</span> · Deadline <span class="mono">{{ project.deadline|date:"Y-m-d" }}</span></div>
   </div>
-  <div class="d-flex gap-2">
-    <a class="btn btn-outline-secondary" href="{% url 'dashboard' %}">Back to dashboard</a>
+  <div class="d-flex gap-2 mx-5 align-items-vertical-center">
     <button
       type="button"
       class="btn btn-outline-danger"
@@ -23,51 +23,51 @@
     >
       Delete
     </button>
-    <a class="btn btn-primary" href="{% url 'home' %}">New estimation</a>
   </div>
 </div>
 
 <div class="row g-4">
-  <div class="col-lg-8">
+  <div class="col-lg-10 col-xl-11 mx-auto">
     <div class="card shadow-sm">
       <div class="card-body p-4">
-        <div class="d-flex align-items-center justify-content-between">
-          <h2 class="h6 text-uppercase text-secondary mb-0">Result</h2>
-          {% if project.red_zone %}
+          <div class="d-flex flex-wrap align-items-center justify-content-between mb-2"></div>
+          <h2 class="h6 text-uppercase mb-0">Quick Summary
+            {% if project.red_zone %}
             <span class="status-pill"><span class="dot" style="background:#dc3545"></span><span class="fw-semibold text-danger">RED ZONE</span></span>
+            {% else %}
+              <span class="status-pill"><span class="dot" style="background:#198754"></span><span class="fw-semibold text-success">OK</span></span>
+            {% endif %}
+          </h2>
+
+
+          <div class="row mb-2">
+          {% if project.red_zone %}
+            <p class="mb-2">This plan is <strong>not feasible</strong> with the current team by the deadline.</p>
+            <ul class="mb-0 ps-5">
+              <li>Move deadline later</li>
+              <li>Add capacity (more devs)</li>
+              <li>Reduce scope / tech complexity</li>
+            </ul>
           {% else %}
-            <span class="status-pill"><span class="dot" style="background:#198754"></span><span class="fw-semibold text-success">OK</span></span>
+            <p class="mb-2">This plan looks <strong>feasible</strong> with the current team by the deadline.</p>
+            <ul class="mb-0 ps-5">
+              <li>Still plan buffer for surprises</li>
+              <li>Track scope creep</li>
+              <li>Re-run if stack/team changes</li>
+            </ul>
           {% endif %}
-        </div>
 
-        <div class="row g-3 mt-1">
-          <div class="col-md-3">
-            <div class="metric">
-              <div class="text-secondary small">Adjusted effort score</div>
-              <div class="fs-4 fw-semibold mono">{% if project.adjusted_effort_score %}{{ project.adjusted_effort_score }}/10{% else %}—{% endif %}</div>
-            </div>
-          </div>
-          <div class="col-md-3">
-            <div class="metric">
-              <div class="text-secondary small">Effort</div>
-              <div class="fs-4 fw-semibold mono">{% if project.effort_hours %}{{ project.effort_hours|floatformat:0 }}h{% else %}—{% endif %}</div>
-            </div>
-          </div>
-          <div class="col-md-3">
-            <div class="metric">
-              <div class="text-secondary small">Capacity</div>
-              <div class="fs-4 fw-semibold mono">{% if project.capacity_hours %}{{ project.capacity_hours|floatformat:0 }}h{% else %}—{% endif %}</div>
-            </div>
-          </div>
-          <div class="col-md-3">
-            <div class="metric">
-              <div class="text-secondary small">Days needed</div>
-              <div class="fs-4 fw-semibold mono">{% if project.days_needed %}{{ project.days_needed }}{% else %}—{% endif %}</div>
-            </div>
-          </div>
-        </div>
+          <hr class="my-4" />
 
-        <div class="row g-3 mt-2">
+          <h2 class="h6 text-uppercase mb-0">Result</h2>
+          </div>
+
+          <div class="adjusted-score text-center ">
+            <span class="text-secondary large">Adjusted effort score</span>
+              <div class="fs-2 fw-semibold mono">{% if project.adjusted_effort_score %}{{ project.adjusted_effort_score }}/10{% else %}—{% endif %}</div>
+          </div>
+
+        <div class="row g-3 mt-2 justify-content-center">
           <div class="col-md-2">
             <div class="metric">
               <div class="text-secondary small">Complexity</div>
@@ -82,17 +82,17 @@
           </div>
           <div class="col-md-2">
             <div class="metric">
-              <div class="text-secondary small">Tech diff</div>
+              <div class="text-secondary small">Tech Difficulty</div>
               <div class="fw-semibold mono">{{ project.tech_difficulty|default_if_none:"—" }}/10</div>
             </div>
           </div>
-          <div class="col-md-3">
+          <div class="col-md-2">
             <div class="metric">
               <div class="text-secondary small">Integration</div>
               <div class="fw-semibold mono">{{ project.integration_complexity|default_if_none:"—" }}/10</div>
             </div>
           </div>
-          <div class="col-md-3">
+          <div class="col-md-2">
             <div class="metric">
               <div class="text-secondary small">Uncertainty</div>
               <div class="fw-semibold mono">{{ project.uncertainty_factor|default_if_none:"—" }}/10</div>
@@ -104,35 +104,60 @@
 
         <div class="row g-4">
           <div class="col-md-7">
-            <h3 class="h6 text-uppercase text-secondary">Capacity vs effort (total)</h3>
-            <canvas id="barChart" height="110"></canvas>
-
-            <h3 class="h6 text-uppercase text-secondary mt-4">By labor category</h3>
-            <canvas id="roleChart" height="140"></canvas>
+            <h3 class="h6 text-uppercase">Capacity vs effort (total)</h3>
+            <canvas id="barChart" height="200"></canvas>
           </div>
           <div class="col-md-5">
-            <h3 class="h6 text-uppercase text-secondary">Estimated finish</h3>
-            <div class="p-3 bg-white border rounded-3">
-              <div class="text-secondary small">Estimated finish date</div>
-              <div class="fs-5 fw-semibold mono">{% if project.estimated_finish_date %}{{ project.estimated_finish_date|date:"Y-m-d" }}{% else %}—{% endif %}</div>
-              <div class="text-secondary small mt-2">Deadline</div>
-              <div class="mono">{{ project.deadline|date:"Y-m-d" }}</div>
-            </div>
-
             {% if project.red_reasons %}
               <div class="mt-3">
-                <h3 class="h6 text-uppercase text-secondary">Red-zone reasons</h3>
+                <h3 class="h6 text-uppercase">Red-zone reasons</h3>
                 <ul class="mb-0">
                   {% for r in project.red_reasons %}
                     <li>{{ r }}</li>
                   {% endfor %}
+                  <!-- <li>
+                    The current capacity is {{ project.capacity_effort|default_if_none:"—"}} of the required effort.
+                  </li> -->
                 </ul>
               </div>
             {% endif %}
+          </div>
+        </div>
+          
+        <h2 class="h6 text-uppercase">Details</h2>
+        <div class="row g-3 justify-content-center">
+          <div class="col-md-4">
+            <div class="metric">
+              <div class="text-secondary small">Estimated finish date</div>
+              <div class="fw-semibold mono">{% if project.estimated_finish_date %}{{ project.estimated_finish_date|date:"Y-m-d" }}{% else %}—{% endif %}</div>
+            </div>
+          </div>
+          <div class="col-md-4">
+            <div class="metric">
+              <div class="text-secondary small">Deadline</div>
+              <div class="fw-semibold mono">{{ project.deadline|date:"Y-m-d" }}</div>
+            </div>
+          </div>
+          <div class="col-md-4">
+            <div class="metric">
+              <div class="text-secondary small">Days needed</div>
+              <div class="fw-semibold mono">{% if project.days_needed %}{{ project.days_needed }}{% else %}—{% endif %}</div>
+            </div>
+          </div>
+        </div>
+        
+        <hr class="my-4" />
+
+          <div class="row g-4">
+            <div class="col-md-7">
+            <h3 class="h6 text-uppercase mt-2">By Labor Category</h3>
+            <canvas id="roleChart" height="200"></canvas>
+          </div>
+          <div class="col-md-5">
 
             {% if project.labor_recommendation_by_role %}
-              <div class="mt-3">
-                <h3 class="h6 text-uppercase text-secondary">Labor adjustment</h3>
+              <div class="mt-2">
+                <h3 class="h6 text-uppercase">Labor adjustment</h3>
                 <div class="table-responsive">
                   <table class="table table-sm align-middle mb-0">
                     <thead>
@@ -165,7 +190,60 @@
 
     <div class="card shadow-sm mt-4">
       <div class="card-body p-4">
-        <h2 class="h6 text-uppercase text-secondary">Edit project</h2>
+        <h2 class="h6 text-uppercase">Project inputs</h2>
+        <div class="row g-3">
+          <div class="col-12">
+            <div class="text-secondary small">Description</div>
+            <div>{% if project.description %}{{ project.description }}{% else %}<span class="text-secondary">(none)</span>{% endif %}</div>
+          </div>
+          <div class="col-md-6">
+            <div class="text-secondary small">Tech stack</div>
+            <div class="d-flex flex-wrap gap-2">
+              {% for s in project.tech_stack %}
+                <span class="badge text-bg-light border">{{ s }}</span>
+              {% empty %}
+                <span class="text-secondary">(none)</span>
+              {% endfor %}
+            </div>
+          </div>
+          <div class="col-12">
+            <label class="form-label">Team</label>
+
+            <!-- <div id="editTeamList" class="d-flex flex-column gap-2"></div>
+
+            <button id="editAddMemberBtn" type="button" class="btn btn-sm btn-outline-secondary mt-2">
+              + Add team member
+            </button> -->
+          </div>
+          <div class="col-md-6">
+            <!-- <div class="text-secondary small">Team</div> -->
+            <div class="table-responsive">
+              <table class="table table-sm align-middle mb-0">
+                <thead>
+                  <tr>
+                    <th>Role</th>
+                    <th>Seniority</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for d in team %}
+                    <tr>
+                      <td class="mono">{{ d.role }}</td>
+                      <td class="mono">{{ d.seniority }}</td>
+                    </tr>
+                  {% empty %}
+                    <tr><td colspan="2" class="text-secondary">No team members.</td></tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <hr class="my-4" />
+
+        <!-- Minimal edit form (updates the project + re-runs estimation) -->
+        <h2 class="h6 text-uppercase">Edit project</h2>
         <p class="text-secondary small mb-3">This updates the saved inputs and re-runs the estimator. (Team stays the same.)</p>
 
         <div id="editProjectError" class="alert alert-danger d-none"></div>
@@ -215,30 +293,6 @@
     </div>
   </div>
 
-  <div class="col-lg-4">
-    <div class="card shadow-sm">
-      <div class="card-body p-4">
-        <h2 class="h6 text-uppercase text-secondary">Quick interpretation</h2>
-        {% if project.red_zone %}
-          <p class="mb-2">This plan is <strong>not feasible</strong> with the current team by the deadline.</p>
-          <ul class="mb-0">
-            <li>Move deadline later</li>
-            <li>Add capacity (more devs)</li>
-            <li>Reduce scope / tech complexity</li>
-          </ul>
-        {% else %}
-          <p class="mb-2">This plan looks <strong>feasible</strong> with the current team by the deadline.</p>
-          <ul class="mb-0">
-            <li>Still plan buffer for surprises</li>
-            <li>Track scope creep</li>
-            <li>Re-run if stack/team changes</li>
-          </ul>
-        {% endif %}
-      </div>
-    </div>
-  </div>
-</div>
-
 <script>
   const effort = Number('{{ project.effort_hours|default_if_none:0 }}');
   const capacity = Number('{{ project.capacity_hours|default_if_none:0 }}');
@@ -247,6 +301,9 @@
   const capacityByRole = JSON.parse('{{ capacity_by_role_json|escapejs }}');
 
   const ctx = document.getElementById('barChart');
+
+  Chart.register(ChartDataLabels);
+
   if (ctx && window.Chart) {
     new Chart(ctx, {
       type: 'bar',
@@ -260,8 +317,23 @@
       },
       options: {
         responsive: true,
-        plugins: { legend: { display: false }, tooltip: { enabled: true } },
-        scales: { y: { beginAtZero: true } }
+        plugins: {
+          legend: { display: false },
+          tooltip: { enabled: true },
+          datalabels: {
+            display: true,
+            color: 'black',
+            anchor: 'end',
+            align: 'top',
+            font: {
+              size: 14,
+            },
+            formatter: (value) => value ? `${value}` : '',
+          },
+        },
+        scales: {
+          y: { beginAtZero: true, suggestedMax: Math.max(effort, capacity)}
+        }
       }
     });
   }
@@ -282,8 +354,23 @@
       },
       options: {
         responsive: true,
-        plugins: { legend: { display: true }, tooltip: { enabled: true } },
-        scales: { y: { beginAtZero: true } }
+        plugins: {
+          legend: { display: true },
+          tooltip: { enabled: true },
+          datalabels: {
+            display: true,
+            color: 'black',
+            anchor: 'end',
+            align: 'top',
+            font: {
+              size: 14,
+            },
+            formatter: (value) => value ? `${value}` : '',
+          },
+        },
+        scales: {
+          y: { beginAtZero: true, suggestedMax: Math.max(effort, capacity) }
+        }
       }
     });
   }

@@ -70,7 +70,9 @@
 
       row.querySelector('[data-remove]').addEventListener('click', () => {
         row.remove();
-        if (teamList.children.length === 0) addDefaultTeam();
+        row.querySelector('[data-remove]').addEventListener('click', () => {
+          row.remove();
+        });
       });
 
       return row;
@@ -115,8 +117,12 @@
       const description = (qs('#description')?.value || '').trim();
       const deadline = (qs('#deadline')?.value || '').trim();
 
-      if (!title) return showError('Please enter a project title.');
-      if (!deadline) return showError('Please choose a deadline date.');
+      if (!title) return showError("Please enter a project title.");
+      if (!deadline) return showError("Please choose a deadline date.");
+      if (teamList.children.length === 0) {
+        showError("Add at least one team member.");
+        return;
+      }
 
       const payload = {
         title,

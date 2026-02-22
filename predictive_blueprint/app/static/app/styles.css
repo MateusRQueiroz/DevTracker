@@ -1,8 +1,24 @@
+.container {
+  gap: 1.5rem;
+  margin-block: auto;
+}
+
+.col-lg-8 {
+  margin-left: auto;
+  margin-right: auto;
+}
+
 .chip {
   border: 1px solid rgba(0,0,0,0.08);
   border-radius: 999px;
   padding: 0.35rem 0.75rem;
   background: #fff;
+}
+
+.page-container {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 1.5rem;
 }
 
 .status-pill {
@@ -25,4 +41,43 @@
 
 .mono {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+}
+
+/* The navigation bar */
+.navbar {
+  overflow:hidden;
+  background-color: rgb(232, 232, 232);
+  position: sticky;
+  top: 0; 
+  z-index: 10;
+  width: 100%; 
+  padding-top: 0.2rem;
+  padding-bottom: 0.2rem;
+}
+
+.navbar a {
+  float: left;
+  display: block;
+  color: #000000;
+  text-align: center;
+  padding: 8px 1px;
+  text-decoration: none;
+}
+
+
+.navbar a:hover {
+  font-weight: bold;
+}
+
+.nav-item{
+  border-bottom-left-radius: 4px;
+  border-bottom-right-radius: 4px;
+  border-top-left-radius: 4px;
+  border-top-right-radius: 4px;
+  padding-top: 0rem;
+  padding-bottom: 0rem;
+  margin-right: 14px;
+  border: 1px solid;
+  border-color: rgb(0, 0, 0);
+  background-color: rgb(202, 202, 202);
 }
