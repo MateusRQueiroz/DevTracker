@@ -268,7 +268,7 @@
           },
         },
         scales: {
-          y: { beginAtZero: true }
+          y: { beginAtZero: true, suggestedMax: Math.max(effort, capacity)}
         }
       }
     });
@@ -305,7 +305,7 @@
           },
         },
         scales: {
-          y: { beginAtZero: true }
+          y: { beginAtZero: true, suggestedMax: Math.max(effort, capacity) }
         }
       }
     });
