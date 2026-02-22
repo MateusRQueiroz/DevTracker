@@ -1,0 +1,64 @@
+{% extends 'app/base.html' %}
+
+{% block title %}Dashboard · DevTracker{% endblock %}
+
+{% block content %}
+<div class="d-flex align-items-center justify-content-between mb-3">
+  <div>
+    <h1 class="h4 mb-1">Dashboard</h1>
+    <p class="text-secondary mb-0">All project estimates (most recent first).</p>
+  </div>
+  <a class="btn btn-primary" href="{% url 'home' %}">+ New estimation</a>
+</div>
+
+<div class="card shadow-sm">
+  <div class="card-body p-0">
+    {% if projects %}
+      <div class="table-responsive">
+        <table class="table table-hover align-middle mb-0">
+          <thead class="table-light">
+            <tr>
+              <th class="ps-4">Project</th>
+              <th>Status</th>
+              <th>Complexity</th>
+              <th>Effort</th>
+              <th>Capacity</th>
+              <th>Deadline</th>
+              <th class="text-end pe-4">Open</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for p in projects %}
+              <tr>
+                <td class="ps-4">
+                  <div class="fw-semibold">{{ p.title }}</div>
+                  <div class="text-secondary small">Created {{ p.created_at|date:"Y-m-d H:i" }}</div>
+                </td>
+                <td>
+                  {% if p.red_zone %}
+                    <span class="status-pill"><span class="dot" style="background:#dc3545"></span><span class="fw-semibold text-danger">RED ZONE</span></span>
+                  {% else %}
+                    <span class="status-pill"><span class="dot" style="background:#198754"></span><span class="fw-semibold text-success">OK</span></span>
+                  {% endif %}
+                </td>
+                <td class="mono">{% if p.complexity %}{{ p.complexity }}/5{% else %}—{% endif %}</td>
+                <td class="mono">{% if p.effort_hours %}{{ p.effort_hours|floatformat:0 }}h{% else %}—{% endif %}</td>
+                <td class="mono">{% if p.capacity_hours %}{{ p.capacity_hours|floatformat:0 }}h{% else %}—{% endif %}</td>
+                <td class="mono">{{ p.deadline|date:"Y-m-d" }}</td>
+                <td class="text-end pe-4">
+                  <a class="btn btn-sm btn-outline-secondary" href="{% url 'project_page' p.id %}">View</a>
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% else %}
+      <div class="p-4">
+        <p class="mb-2">No projects yet.</p>
+        <a class="btn btn-primary" href="{% url 'home' %}">Create your first estimation</a>
+      </div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

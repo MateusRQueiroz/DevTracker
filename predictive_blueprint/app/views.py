@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from datetime import date
 
+from django.shortcuts import render
 from django.http import JsonResponse, HttpRequest
 from django.views.decorators.csrf import csrf_exempt
 
@@ -135,4 +136,46 @@ def project_detail(request: HttpRequest, project_id: int) -> JsonResponse:
                 "team": devs,
             }
         }
+    )
+
+
+# ------------------------------
+# Frontend pages (HTML dashboard)
+# ------------------------------
+
+
+def home(request: HttpRequest):
+    """Landing page with the intake form."""
+    return render(request, "app/index.html")
+
+
+def dashboard(request: HttpRequest):
+    """Simple dashboard listing all projects."""
+    projects = Project.objects.all().order_by("-created_at")
+    return render(request, "app/dashboard.html", {"projects": projects})
+
+
+def project_page(request: HttpRequest, project_id: int):
+    """Human-friendly project detail page."""
+    try:
+        project = Project.objects.get(id=project_id)
+    except Project.DoesNotExist:
+        return render(request, "app/not_found.html", status=404)
+
+    devs = list(project.devs.all().values("role", "seniority"))
+
+    deadline_iso = project.deadline.isoformat() if project.deadline else ""
+    finish_iso = (
+        project.estimated_finish_date.isoformat() if project.estimated_finish_date else ""
+    )
+
+    return render(
+        request,
+        "app/project_detail.html",
+        {
+            "project": project,
+            "team": devs,
+            "deadline_iso": deadline_iso,
+            "finish_iso": finish_iso,
+        },
     )

@@ -1,0 +1,111 @@
+{% extends 'app/base.html' %}
+
+{% block title %}New Project · DevTracker{% endblock %}
+
+{% block content %}
+<div class="row g-4">
+  <div class="col-lg-7">
+    <div class="card shadow-sm">
+      <div class="card-body p-4">
+        <h1 class="h4 mb-1">Project Feasibility Intake</h1>
+        <p class="text-secondary mb-4">
+          Enter a project, pick a deadline and team. We'll score complexity (1–5) and flag a <span class="badge text-bg-danger">RED ZONE</span> if the deadline is not feasible.
+        </p>
+
+        <form id="intakeForm" class="vstack gap-3" novalidate>
+          <div>
+            <label class="form-label" for="title">Project title</label>
+            <input class="form-control" id="title" name="title" placeholder="Ex: Customer Success Dashboard" required />
+            <div class="form-text">Short and specific is best.</div>
+          </div>
+
+          <div>
+            <label class="form-label" for="description">Description</label>
+            <textarea class="form-control" id="description" name="description" rows="4" placeholder="What are you building? Who is it for? What are the key features?"></textarea>
+          </div>
+
+          <div>
+            <label class="form-label" for="deadline">Deadline</label>
+            <input class="form-control" id="deadline" name="deadline" type="date" required />
+          </div>
+
+          <div>
+            <label class="form-label">Tech stack</label>
+            <div class="d-flex flex-wrap gap-2">
+              <div class="form-check chip">
+                <input class="form-check-input" type="checkbox" value="Django" id="stackDjango" />
+                <label class="form-check-label" for="stackDjango">Django</label>
+              </div>
+              <div class="form-check chip">
+                <input class="form-check-input" type="checkbox" value="React" id="stackReact" />
+                <label class="form-check-label" for="stackReact">React</label>
+              </div>
+              <div class="form-check chip">
+                <input class="form-check-input" type="checkbox" value="Postgres" id="stackPg" />
+                <label class="form-check-label" for="stackPg">Postgres</label>
+              </div>
+              <div class="form-check chip">
+                <input class="form-check-input" type="checkbox" value="AWS" id="stackAws" />
+                <label class="form-check-label" for="stackAws">AWS</label>
+              </div>
+              <div class="form-check chip">
+                <input class="form-check-input" type="checkbox" value="Docker" id="stackDocker" />
+                <label class="form-check-label" for="stackDocker">Docker</label>
+              </div>
+              <div class="form-check chip">
+                <input class="form-check-input" type="checkbox" value="Stripe" id="stackStripe" />
+                <label class="form-check-label" for="stackStripe">Stripe</label>
+              </div>
+            </div>
+            <div class="mt-2">
+              <label class="form-label" for="stackExtra">Other (comma-separated)</label>
+              <input class="form-control" id="stackExtra" name="stackExtra" placeholder="Redis, Celery, Kubernetes" />
+            </div>
+          </div>
+
+          <div>
+            <div class="d-flex align-items-center justify-content-between">
+              <label class="form-label m-0">Team</label>
+              <button type="button" class="btn btn-sm btn-outline-secondary" id="addMemberBtn">+ Add member</button>
+            </div>
+            <div id="teamList" class="vstack gap-2 mt-2"></div>
+            <div class="form-text">Roles are limited to FE / BE / DEVOPS, and seniority is JUNIOR / MID / SENIOR.</div>
+          </div>
+
+          <div class="d-flex align-items-center gap-2">
+            <button class="btn btn-primary" type="submit" id="submitBtn">Run estimation</button>
+            <div id="formStatus" class="text-secondary small"></div>
+          </div>
+
+          <div id="formError" class="alert alert-danger d-none" role="alert"></div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-lg-5">
+    <div class="card shadow-sm">
+      <div class="card-body p-4">
+        <h2 class="h6 text-uppercase text-secondary mb-3">How it works</h2>
+        <ol class="mb-0">
+          <li class="mb-2">AI assigns a <strong>complexity score</strong> (1–5) from title/description/stack.</li>
+          <li class="mb-2">We map complexity → <strong>effort hours</strong>.</li>
+          <li class="mb-2">We compute team <strong>capacity hours</strong> until your deadline.</li>
+          <li>If required &gt; available → <span class="badge text-bg-danger">RED ZONE</span>.</li>
+        </ol>
+      </div>
+    </div>
+
+    <div class="card shadow-sm mt-4">
+      <div class="card-body p-4">
+        <h2 class="h6 text-uppercase text-secondary mb-3">Tips for judges</h2>
+        <ul class="mb-0">
+          <li>Keep inputs short: 2–4 key features is enough.</li>
+          <li>Try two teams against the same deadline to show the Red Zone flip.</li>
+          <li>Use the dashboard to show your project history.</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
