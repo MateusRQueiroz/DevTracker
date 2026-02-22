@@ -148,7 +148,6 @@ def get_complexity_marks(
         data["gemini_ok"] = False
         data["gemini_error"] = "Missing API key"
         return data
-
     try:
         client = genai.Client(api_key=api_key)
 
