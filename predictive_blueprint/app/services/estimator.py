@@ -6,9 +6,8 @@ import os
 import re
 from datetime import date, timedelta
 from typing import Iterable
-
 from google import genai
-
+from app.services.gemini import clean_json_response
 from app.models import Dev, Project
 
 # ------------------------------
@@ -17,20 +16,10 @@ from app.models import Dev, Project
 
 HOURS_PER_DEV_PER_DAY = 6.0
 
-# "Hours per point" for Gemini marks (1..10)
-# Each category is linear: score=2 means 2x the base.
-HOURS_PER_POINT = {
-    "complexity_score": 18.0,
-    "estimated_features_count": 14.0,
-    "tech_difficulty": 20.0,
-    "integration_complexity": 12.0,
-    "uncertainty_factor": 8.0,
-}
-
 SENIORITY_MULT = {
-    "JUNIOR": 0.8,
+    "JUNIOR": 0.5,
     "MID": 1.0,
-    "SENIOR": 1.2,
+    "SENIOR": 2,
 }
 
 
@@ -83,18 +72,15 @@ def required_roles_from_stack(tech_stack: Iterable[str]) -> set[str]:
     return req
 
 
-
 def _has_devops_stack(tech_stack: Iterable[str]) -> bool:
     s = {x.strip().lower() for x in tech_stack if isinstance(x, str)}
     return any(k in s for k in ["aws", "gcp", "azure", "docker", "k8s", "kubernetes", "terraform"])
+
 
 def _has_light_devops_work(tech_stack: Iterable[str]) -> bool:
     """True if the project likely needs some build/deploy/config work even without infra keywords."""
     s = {x.strip().lower() for x in tech_stack if isinstance(x, str)}
     return any(k in s for k in ["django", "flask", "fastapi", "node", "express", "react", "vue", "angular"])
-
-
-
 
 
 def compute_capacity_hours_by_role(devs: list[Dev], working_days_until_deadline: int) -> dict[str, float]:
@@ -105,21 +91,16 @@ def compute_capacity_hours_by_role(devs: list[Dev], working_days_until_deadline:
     return cap
 
 
-def compute_effort_hours(
-    *,
-    complexity_score: int,
-    estimated_features_count: int,
-    tech_difficulty: int,
-    integration_complexity: int,
-    uncertainty_factor: int,
-) -> float:
-    return float(
-        complexity_score * HOURS_PER_POINT["complexity_score"]
-        + estimated_features_count * HOURS_PER_POINT["estimated_features_count"]
-        + tech_difficulty * HOURS_PER_POINT["tech_difficulty"]
-        + integration_complexity * HOURS_PER_POINT["integration_complexity"]
-        + uncertainty_factor * HOURS_PER_POINT["uncertainty_factor"]
-    )
+# ------------------------------
+# Effort model (only uses effort_score)
+# ------------------------------
+def compute_effort_hours(*, effort_score: int) -> float:
+    s = max(1, min(10, int(effort_score)))
+
+    BASE = 8.0      # minimum realistic project
+    GROWTH = 1.6    # exponential factor
+
+    return float(round(BASE * (GROWTH ** (s - 1)), 1))
 
 
 def compute_adjusted_effort_score(
@@ -243,15 +224,7 @@ def compute_role_split_fractions(
     tech_difficulty: int,
     integration_complexity: int,
 ) -> dict[str, float]:
-    """Return role fractions that sum to 1.
-
-    Practical goals:
-    - Avoid unrealistic *zero frontend* when the project is clearly a web app.
-    - Avoid unrealistic *zero DevOps*: even without explicit infra, most web apps need some deploy/config/CI.
-      Keep DevOps small unless infra keywords are present.
-
-    This stays deterministic and stable even if Gemini output is noisy.
-    """
+    """Return role fractions that sum to 1."""
     infra = _has_devops_stack(tech_stack)
     light_devops = _has_light_devops_work(tech_stack)
 
@@ -265,12 +238,10 @@ def compute_role_split_fractions(
     s = {x.strip().lower() for x in tech_stack if isinstance(x, str)}
     explicit_fe = any(k in s for k in ["react", "vue", "angular", "nextjs", "next.js", "frontend", "ui"])
 
-    # Minimum FE fraction if FE is required.
     min_fe = 0.0
     if "FE" in required_roles:
         min_fe = 0.35 if explicit_fe else 0.25
 
-    # Minimum DevOps fraction (baseline deploy/config), larger when infra exists or complexity is higher.
     min_devops = 0.0
     if devops_allowed:
         if infra:
@@ -282,7 +253,6 @@ def compute_role_split_fractions(
             elif ic >= 5 or td >= 6 or ef >= 6:
                 min_devops = 0.08
 
-    # Cap DevOps unless infra is present.
     max_devops = 0.22 if infra else 0.14
 
     split = _gemini_role_split(
@@ -293,7 +263,6 @@ def compute_role_split_fractions(
         integration_complexity=ic,
     )
 
-    # Fallback deterministic split
     if split is None:
         if required_roles == {"BE"}:
             split = {"FE": 0.0, "BE": 1.0, "DEVOPS": 0.0}
@@ -305,7 +274,6 @@ def compute_role_split_fractions(
             split = {"FE": 0.45, "BE": 0.55, "DEVOPS": 0.0}
         split = _normalize_split(split)
 
-    # Enforce required role constraints for FE/BE
     if "FE" not in required_roles and split.get("FE", 0.0) > 0:
         split = {"FE": 0.0, "BE": split.get("BE", 0.0) + split.get("FE", 0.0), "DEVOPS": split.get("DEVOPS", 0.0)}
         split = _normalize_split(split)
@@ -314,10 +282,8 @@ def compute_role_split_fractions(
         split = {"FE": split.get("FE", 0.0) + split.get("BE", 0.0), "BE": 0.0, "DEVOPS": split.get("DEVOPS", 0.0)}
         split = _normalize_split(split)
 
-    # --- Post-process for realism ---
     split = _normalize_split(split)
 
-    # Enforce minimum FE
     if min_fe > 0 and split["FE"] < min_fe:
         need = min_fe - split["FE"]
         from_be = min(need, split["BE"])
@@ -328,7 +294,6 @@ def compute_role_split_fractions(
             split = {"FE": split["FE"] + from_do, "BE": split["BE"], "DEVOPS": split["DEVOPS"] - from_do}
         split = _normalize_split(split)
 
-    # Enforce DevOps min/cap
     if devops_allowed:
         if min_devops > 0 and split["DEVOPS"] < min_devops:
             need = min_devops - split["DEVOPS"]
@@ -352,8 +317,6 @@ def compute_role_split_fractions(
     return split
 
 
-
-
 def _recommendation_from_delta(
     *,
     role: str,
@@ -361,11 +324,7 @@ def _recommendation_from_delta(
     working_days: int,
     assumed_seniority_mult: float = 1.0,
 ) -> dict[str, float | str]:
-    """Turn +/- hours into a human recommendation.
-
-    Positive delta means deficit (need more capacity).
-    Negative delta means surplus (could cut).
-    """
+    """Turn +/- hours into a human recommendation."""
     if working_days <= 0:
         return {"role": role, "action": "unknown", "hours": float(delta_hours), "fte": 0.0}
 
@@ -382,7 +341,6 @@ def run_estimation(project: Project) -> Project:
     """Populate derived fields and red-zone analysis."""
     reasons: list[str] = []
 
-    # Clamp marks to 1..10 and provide reasonable fallbacks.
     marks = {
         "complexity_score": int(project.complexity_score or 4),
         "estimated_features_count": int(project.estimated_features_count or 4),
@@ -393,8 +351,8 @@ def run_estimation(project: Project) -> Project:
     for k in list(marks.keys()):
         marks[k] = max(1, min(10, int(marks[k])))
 
-    effort = compute_effort_hours(**marks)
     adjusted_score = compute_adjusted_effort_score(**marks)
+    effort = compute_effort_hours(effort_score=compute_adjusted_effort_score(**marks))
 
     today = date.today()
     working_days = count_weekdays(today, project.deadline)
@@ -415,8 +373,7 @@ def run_estimation(project: Project) -> Project:
     required_roles = required_roles_from_stack(project.tech_stack or [])
     if "DEVOPS" in required_roles and not _has_devops_stack(project.tech_stack or []):
         required_roles = {r for r in required_roles if r != "DEVOPS"}
-    # Realism: even without explicit infra keywords, web apps usually need some deploy/config/CI work.
-    # Treat DEVOPS as effectively required if the stack implies it and the split gives it non-trivial hours.
+
     required_roles_effective = set(required_roles)
     if _has_devops_stack(project.tech_stack or []) or _has_light_devops_work(project.tech_stack or []):
         required_roles_effective.add("DEVOPS")
@@ -432,13 +389,13 @@ def run_estimation(project: Project) -> Project:
         tech_difficulty=marks["tech_difficulty"],
         integration_complexity=marks["integration_complexity"],
     )
-    # HARD STOP: if DevOps isn't required, force its effort share to 0
+
     if "DEVOPS" not in required_roles:
         split = {"FE": split.get("FE", 0.0), "BE": split.get("BE", 0.0) + split.get("DEVOPS", 0.0), "DEVOPS": 0.0}
         split = _normalize_split(split)
+
     effort_by_role = {k: float(effort * split.get(k, 0.0)) for k in ["FE", "BE", "DEVOPS"]}
 
-    # Compute deltas and recommendations.
     delta_by_role = {
         k: float(effort_by_role.get(k, 0.0) - capacity_by_role.get(k, 0.0)) for k in ["FE", "BE", "DEVOPS"]
     }
@@ -448,7 +405,6 @@ def run_estimation(project: Project) -> Project:
         if (effort_by_role.get(k, 0.0) > 0.0 or capacity_by_role.get(k, 0.0) > 0.0)
     }
 
-    # Date estimate using total team capacity (regardless of role) – simple but stable.
     mult_sum = sum(SENIORITY_MULT.get(d.seniority, 1.0) for d in devs)
     daily_capacity_total = HOURS_PER_DEV_PER_DAY * mult_sum if mult_sum > 0 else 0.0
     if daily_capacity_total <= 0:
@@ -463,10 +419,7 @@ def run_estimation(project: Project) -> Project:
                 f"Estimated finish date {finish_date.isoformat()} exceeds deadline {project.deadline.isoformat()}."
             )
 
-    # Red zone checks
     overall_deficit = capacity_total < effort
-
-    # IMPORTANT: only count role deficits for REQUIRED roles (prevents false DEVOPS red-zone)
     role_deficits = [r for r, dh in delta_by_role.items() if (r in required_roles and dh > 0.01)]
 
     if overall_deficit:
