@@ -3,12 +3,30 @@
 {% block title %}Dashboard · DevTracker{% endblock %}
 
 {% block content %}
-<div class="d-flex align-items-center justify-content-between mb-3">
+<div class="d-flex flex-wrap gap-2 align-items-center justify-content-between mb-3">
   <div>
     <h1 class="h4 mb-1">Dashboard</h1>
     <p class="text-secondary mb-0">All project estimates (most recent first).</p>
   </div>
-  <a class="btn btn-primary" href="{% url 'home' %}">+ New estimation</a>
+
+  <div class="d-flex gap-2 align-items-center">
+    <form class="d-flex gap-2" method="get" action="{% url 'dashboard' %}">
+      <input
+        class="form-control"
+        type="search"
+        name="q"
+        placeholder="Search title or description…"
+        value="{{ q|default:'' }}"
+        style="min-width: 260px;"
+      />
+      <button class="btn btn-outline-secondary" type="submit">Search</button>
+      {% if q %}
+        <a class="btn btn-outline-secondary" href="{% url 'dashboard' %}">Clear</a>
+      {% endif %}
+    </form>
+
+    <a class="btn btn-primary" href="{% url 'home' %}">+ New estimation</a>
+  </div>
 </div>
 
 <div class="card shadow-sm">
@@ -24,7 +42,7 @@
               <th>Effort</th>
               <th>Capacity</th>
               <th>Deadline</th>
-              <th class="text-end pe-4">Open</th>
+              <th class="text-end pe-4">Actions</th>
             </tr>
           </thead>
           <tbody>
@@ -45,8 +63,19 @@
                 <td class="mono">{% if p.effort_hours %}{{ p.effort_hours|floatformat:0 }}h{% else %}—{% endif %}</td>
                 <td class="mono">{% if p.capacity_hours %}{{ p.capacity_hours|floatformat:0 }}h{% else %}—{% endif %}</td>
                 <td class="mono">{{ p.deadline|date:"Y-m-d" }}</td>
+
                 <td class="text-end pe-4">
-                  <a class="btn btn-sm btn-outline-secondary" href="{% url 'project_page' p.id %}">View</a>
+                  <div class="d-inline-flex gap-2">
+                    <a class="btn btn-sm btn-outline-secondary" href="{% url 'project_page' p.id %}">View / Edit</a>
+                    <button
+                      type="button"
+                      class="btn btn-sm btn-outline-danger"
+                      data-delete-project="{{ p.id }}"
+                      data-delete-title="{{ p.title|escape }}"
+                    >
+                      Delete
+                    </button>
+                  </div>
                 </td>
               </tr>
             {% endfor %}
@@ -55,8 +84,13 @@
       </div>
     {% else %}
       <div class="p-4">
-        <p class="mb-2">No projects yet.</p>
-        <a class="btn btn-primary" href="{% url 'home' %}">Create your first estimation</a>
+        {% if q %}
+          <p class="mb-2">No projects match “{{ q }}”.</p>
+          <a class="btn btn-outline-secondary" href="{% url 'dashboard' %}">Clear search</a>
+        {% else %}
+          <p class="mb-2">No projects yet.</p>
+          <a class="btn btn-primary" href="{% url 'home' %}">Create your first estimation</a>
+        {% endif %}
       </div>
     {% endif %}
   </div>
