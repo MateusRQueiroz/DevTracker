@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from datetime import date
 
 from django.db.models import Q
@@ -16,6 +17,28 @@ from app.services.estimator import run_estimation
 
 def _json_error(message: str, status: int = 400) -> JsonResponse:
     return JsonResponse({"ok": False, "error": message}, status=status)
+
+
+def api_key(request: HttpRequest) -> JsonResponse:
+    """Return GEMINI_API_KEY for the rewrite tool."""
+    if request.method != "GET":
+        return _json_error("Use GET", 405)
+    key = (os.getenv("GEMINI_API_KEY") or "").strip()
+    if not key:
+        # Fallback: read directly from predictive_blueprint/.env.example
+        from pathlib import Path
+        from django.conf import settings
+        env_path = Path(settings.BASE_DIR) / ".env.example"
+        if env_path.exists():
+            with open(env_path, encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if line.startswith("GEMINI_API_KEY=") and not line.startswith("GEMINI_API_KEY=$"):
+                        key = line.split("=", 1)[1].strip().strip('"').strip("'")
+                        break
+    if not key or key == "YOUR_API_KEY_HERE":
+        return _json_error("GEMINI_API_KEY not configured", 503)
+    return JsonResponse({"key": key})
 
 
 @csrf_exempt

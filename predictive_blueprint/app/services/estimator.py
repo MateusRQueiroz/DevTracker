@@ -6,6 +6,7 @@ import os
 import re
 from datetime import date, timedelta
 from typing import Iterable
+from math import e
 
 from google import genai
 
@@ -114,11 +115,12 @@ def compute_effort_hours(
     uncertainty_factor: int,
 ) -> float:
     return float(
-        complexity_score * HOURS_PER_POINT["complexity_score"]
-        + estimated_features_count * HOURS_PER_POINT["estimated_features_count"]
-        + tech_difficulty * HOURS_PER_POINT["tech_difficulty"]
-        + integration_complexity * HOURS_PER_POINT["integration_complexity"]
-        + uncertainty_factor * HOURS_PER_POINT["uncertainty_factor"]
+        e ** (complexity_score)
+        # complexity_score * HOURS_PER_POINT["complexity_score"]
+        # + estimated_features_count * HOURS_PER_POINT["estimated_features_count"]
+        # + tech_difficulty * HOURS_PER_POINT["tech_difficulty"]
+        # + integration_complexity * HOURS_PER_POINT["integration_complexity"]
+        # + uncertainty_factor * HOURS_PER_POINT["uncertainty_factor"]
     )
 
 

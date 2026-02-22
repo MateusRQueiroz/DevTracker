@@ -26,3 +26,22 @@
 .mono {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
 }
+
+.rewrite-spinner {
+  display: inline-block;
+  width: 1.25rem;
+  height: 1.25rem;
+  border: 2px solid rgba(0, 0, 0, 0.15);
+  border-top-color: currentColor;
+  border-radius: 50%;
+  animation: rewrite-spin 0.8s linear infinite;
+  flex-shrink: 0;
+}
+
+.rewrite-spinner.d-none {
+  display: none !important;
+}
+
+@keyframes rewrite-spin {
+  to { transform: rotate(360deg); }
+}

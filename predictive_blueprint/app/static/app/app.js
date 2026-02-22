@@ -72,6 +72,95 @@
       addDefaultTeam();
     }
 
+    // Rewrite using AI
+    const rewriteBtn = qs('#rewriteBtn');
+    const descriptionEl = qs('#description');
+    const descriptionSpinner = qs('#descriptionSpinner');
+    const rewriteError = qs('#rewriteError');
+
+    let apiKey = null;
+
+    async function loadApiKey() {
+      if (apiKey) return true;
+      try {
+        const r = await fetch('/api/key/');
+        if (!r.ok) throw new Error('API key not available');
+        const data = await r.json();
+        if (!data.key) throw new Error('No key');
+        apiKey = data.key;
+        return true;
+      } catch (e) {
+        return false;
+      }
+    }
+
+    rewriteBtn?.addEventListener('click', async () => {
+      if (!descriptionEl) return;
+
+      const text = (descriptionEl.value || '').trim();
+      if (!text) {
+        if (rewriteError) {
+          rewriteError.textContent = 'Enter a description first.';
+          rewriteError.classList.remove('d-none');
+        }
+        return;
+      }
+
+      const ok = await loadApiKey();
+      if (!ok) {
+        if (rewriteError) {
+          rewriteError.textContent = 'API key not configured. Set GEMINI_API_KEY in your environment.';
+          rewriteError.classList.remove('d-none');
+        }
+        return;
+      }
+
+      rewriteBtn.disabled = true;
+      rewriteBtn.textContent = 'Rewriting...';
+      if (descriptionSpinner) descriptionSpinner.classList.remove('d-none');
+      if (rewriteError) {
+        rewriteError.textContent = '';
+        rewriteError.classList.add('d-none');
+      }
+
+      try {
+        const res = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              contents: [{
+                parts: [{
+                  text: 'Rewrite the following project description into a more detailed, structured description suited for further prompt engineering. Include: clear problem statement, target users, key features with brief elaboration, technical considerations, and success criteria. Return only the rewritten text, no explanations or markdown:\n\n' + text
+                }]
+              }]
+            })
+          }
+        );
+
+        const data = await res.json();
+
+        if (!res.ok) {
+          throw new Error(data?.error?.message || `API error: ${res.status}`);
+        }
+
+        const rewritten = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+        if (!rewritten) throw new Error('No text in API response');
+
+        descriptionEl.value = rewritten.trim();
+      } catch (e) {
+        if (rewriteError) {
+          rewriteError.textContent = e.message || 'Something went wrong.';
+          rewriteError.classList.remove('d-none');
+        }
+      } finally {
+        rewriteBtn.disabled = false;
+        rewriteBtn.textContent = 'Rewrite using AI ✨';
+        if (descriptionSpinner) descriptionSpinner.classList.add('d-none');
+      }
+    });
+
     function readTechStack() {
       const checked = qsa('input[type="checkbox"][id^="stack"]:checked')
         .map((el) => el.value);

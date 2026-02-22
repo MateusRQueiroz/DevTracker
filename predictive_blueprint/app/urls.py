@@ -10,4 +10,5 @@ urlpatterns = [
     # JSON API
     path("api/intake/", views.intake),
     path("api/project/<int:project_id>/", views.project_detail),
+    path("api/key/", views.api_key),
 ]

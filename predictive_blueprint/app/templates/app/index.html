@@ -20,8 +20,15 @@
           </div>
 
           <div>
-            <label class="form-label" for="description">Description</label>
-            <textarea class="form-control" id="description" name="description" rows="4" placeholder="What are you building? Who is it for? What are the key features?"></textarea>
+            <div class="d-flex align-items-center justify-content-between mb-2">
+              <label class="form-label m-0" for="description">Description</label>
+              <button type="button" class="btn btn-sm btn-outline-primary" id="rewriteBtn">Rewrite using AI ✨</button>
+            </div>
+            <div class="d-flex align-items-start gap-2">
+              <textarea class="form-control flex-grow-1" id="description" name="description" rows="4" placeholder="What are you building? Who is it for? What are the key features?"></textarea>
+              <span class="rewrite-spinner mt-2 d-none" id="descriptionSpinner" aria-hidden="true"></span>
+            </div>
+            <div id="rewriteError" class="text-danger small mt-1 d-none"></div>
           </div>
 
           <div>
