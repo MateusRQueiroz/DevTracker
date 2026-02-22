@@ -46,7 +46,7 @@
 /* The navigation bar */
 .navbar {
   overflow:hidden;
-  background-color: #b0b0b0;
+  background-color: rgb(232, 232, 232);
   position: sticky;
   top: 0; 
   z-index: 10;
@@ -60,14 +60,13 @@
   display: block;
   color: #000000;
   text-align: center;
-  padding: 14px 16px;
+  padding: 8px 1px;
   text-decoration: none;
 }
 
 
 .navbar a:hover {
   font-weight: bold;
-  color: rgb(15, 121, 15);
 }
 
 .nav-item{
@@ -77,8 +76,8 @@
   border-top-right-radius: 4px;
   padding-top: 0rem;
   padding-bottom: 0rem;
-  margin-left: 14px;
-  border: 2px solid;
-  border-color: black;
+  margin-right: 14px;
+  border: 1px solid;
+  border-color: rgb(0, 0, 0);
   background-color: rgb(202, 202, 202);
 }
