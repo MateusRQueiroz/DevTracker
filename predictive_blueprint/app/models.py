@@ -12,9 +12,23 @@ class Project(models.Model):
 
     deadline = models.DateField()
 
-    complexity = models.PositiveSmallIntegerField(null=True, blank=True)  # 1..5
+    # Gemini marks (1..10)
+    complexity_score = models.PositiveSmallIntegerField(null=True, blank=True)
+    estimated_features_count = models.PositiveSmallIntegerField(null=True, blank=True)
+    tech_difficulty = models.PositiveSmallIntegerField(null=True, blank=True)
+    integration_complexity = models.PositiveSmallIntegerField(null=True, blank=True)
+    uncertainty_factor = models.PositiveSmallIntegerField(null=True, blank=True)
+
+    # Derived output (1..10)
+    adjusted_effort_score = models.PositiveSmallIntegerField(null=True, blank=True)
+
     effort_hours = models.FloatField(null=True, blank=True)
     capacity_hours = models.FloatField(null=True, blank=True)
+
+    effort_hours_by_role = models.JSONField(default=dict, blank=True)
+    capacity_hours_by_role = models.JSONField(default=dict, blank=True)
+    labor_delta_hours_by_role = models.JSONField(default=dict, blank=True)
+    labor_recommendation_by_role = models.JSONField(default=dict, blank=True)
 
     days_needed = models.PositiveIntegerField(null=True, blank=True)
     estimated_finish_date = models.DateField(null=True, blank=True)

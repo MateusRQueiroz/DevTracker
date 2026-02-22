@@ -8,7 +8,7 @@ from django.http import JsonResponse, HttpRequest
 from django.views.decorators.csrf import csrf_exempt
 
 from app.models import Dev, Project
-from app.services.gemini import get_complexity
+from app.services.gemini import get_project_marks
 from app.services.estimator import run_estimation
 
 
@@ -80,8 +80,12 @@ def intake(request: HttpRequest) -> JsonResponse:
 
         Dev.objects.create(project=project, role=role, seniority=seniority)
 
-    complexity = get_complexity(title=title, description=description, tech_stack=tech_stack)
-    project.complexity = complexity
+    marks = get_project_marks(title=title, description=description, tech_stack=tech_stack)
+    project.complexity_score = marks["complexity_score"]
+    project.estimated_features_count = marks["estimated_features_count"]
+    project.tech_difficulty = marks["tech_difficulty"]
+    project.integration_complexity = marks["integration_complexity"]
+    project.uncertainty_factor = marks["uncertainty_factor"]
     project.save()
 
     run_estimation(project)
@@ -92,9 +96,20 @@ def intake(request: HttpRequest) -> JsonResponse:
             "project_id": project.id,
             "red_zone": project.red_zone,
             "red_reasons": project.red_reasons,
-            "complexity": project.complexity,
+            "marks": {
+                "complexity_score": project.complexity_score,
+                "estimated_features_count": project.estimated_features_count,
+                "tech_difficulty": project.tech_difficulty,
+                "integration_complexity": project.integration_complexity,
+                "uncertainty_factor": project.uncertainty_factor,
+            },
+            "adjusted_effort_score": project.adjusted_effort_score,
             "effort_hours": project.effort_hours,
             "capacity_hours": project.capacity_hours,
+            "effort_hours_by_role": project.effort_hours_by_role,
+            "capacity_hours_by_role": project.capacity_hours_by_role,
+            "labor_delta_hours_by_role": project.labor_delta_hours_by_role,
+            "labor_recommendation_by_role": project.labor_recommendation_by_role,
             "days_needed": project.days_needed,
             "estimated_finish_date": project.estimated_finish_date.isoformat()
             if project.estimated_finish_date
@@ -124,9 +139,20 @@ def project_detail(request: HttpRequest, project_id: int) -> JsonResponse:
                 "description": project.description,
                 "tech_stack": project.tech_stack,
                 "deadline": project.deadline.isoformat(),
-                "complexity": project.complexity,
+                "marks": {
+                    "complexity_score": project.complexity_score,
+                    "estimated_features_count": project.estimated_features_count,
+                    "tech_difficulty": project.tech_difficulty,
+                    "integration_complexity": project.integration_complexity,
+                    "uncertainty_factor": project.uncertainty_factor,
+                },
+                "adjusted_effort_score": project.adjusted_effort_score,
                 "effort_hours": project.effort_hours,
                 "capacity_hours": project.capacity_hours,
+                "effort_hours_by_role": project.effort_hours_by_role,
+                "capacity_hours_by_role": project.capacity_hours_by_role,
+                "labor_delta_hours_by_role": project.labor_delta_hours_by_role,
+                "labor_recommendation_by_role": project.labor_recommendation_by_role,
                 "days_needed": project.days_needed,
                 "estimated_finish_date": project.estimated_finish_date.isoformat()
                 if project.estimated_finish_date
@@ -169,6 +195,9 @@ def project_page(request: HttpRequest, project_id: int):
         project.estimated_finish_date.isoformat() if project.estimated_finish_date else ""
     )
 
+    effort_by_role_json = json.dumps(project.effort_hours_by_role or {})
+    capacity_by_role_json = json.dumps(project.capacity_hours_by_role or {})
+
     return render(
         request,
         "app/project_detail.html",
@@ -177,5 +206,7 @@ def project_page(request: HttpRequest, project_id: int):
             "team": devs,
             "deadline_iso": deadline_iso,
             "finish_iso": finish_iso,
+            "effort_by_role_json": effort_by_role_json,
+            "capacity_by_role_json": capacity_by_role_json,
         },
     )

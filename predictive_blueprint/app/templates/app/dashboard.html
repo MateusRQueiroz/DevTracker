@@ -20,7 +20,7 @@
             <tr>
               <th class="ps-4">Project</th>
               <th>Status</th>
-              <th>Complexity</th>
+              <th>Effort score</th>
               <th>Effort</th>
               <th>Capacity</th>
               <th>Deadline</th>
@@ -41,7 +41,7 @@
                     <span class="status-pill"><span class="dot" style="background:#198754"></span><span class="fw-semibold text-success">OK</span></span>
                   {% endif %}
                 </td>
-                <td class="mono">{% if p.complexity %}{{ p.complexity }}/5{% else %}—{% endif %}</td>
+                <td class="mono">{% if p.adjusted_effort_score %}{{ p.adjusted_effort_score }}/10{% else %}—{% endif %}</td>
                 <td class="mono">{% if p.effort_hours %}{{ p.effort_hours|floatformat:0 }}h{% else %}—{% endif %}</td>
                 <td class="mono">{% if p.capacity_hours %}{{ p.capacity_hours|floatformat:0 }}h{% else %}—{% endif %}</td>
                 <td class="mono">{{ p.deadline|date:"Y-m-d" }}</td>

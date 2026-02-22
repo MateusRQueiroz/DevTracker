@@ -9,7 +9,7 @@
       <div class="card-body p-4">
         <h1 class="h4 mb-1">Project Feasibility Intake</h1>
         <p class="text-secondary mb-4">
-          Enter a project, pick a deadline and team. We'll score complexity (1–5) and flag a <span class="badge text-bg-danger">RED ZONE</span> if the deadline is not feasible.
+          Enter a project, pick a deadline and team. Gemini scores 5 dimensions (1–10) and we flag a <span class="badge text-bg-danger">RED ZONE</span> if your team mix or total hours can't hit the deadline.
         </p>
 
         <form id="intakeForm" class="vstack gap-3" novalidate>
@@ -88,10 +88,10 @@
       <div class="card-body p-4">
         <h2 class="h6 text-uppercase text-secondary mb-3">How it works</h2>
         <ol class="mb-0">
-          <li class="mb-2">AI assigns a <strong>complexity score</strong> (1–5) from title/description/stack.</li>
-          <li class="mb-2">We map complexity → <strong>effort hours</strong>.</li>
-          <li class="mb-2">We compute team <strong>capacity hours</strong> until your deadline.</li>
-          <li>If required &gt; available → <span class="badge text-bg-danger">RED ZONE</span>.</li>
+          <li class="mb-2">AI assigns 5 marks (each <strong>1–10</strong>): complexity, features, tech difficulty, integration, uncertainty.</li>
+          <li class="mb-2">We map each mark → <strong>effort hours</strong> (linear “hours per point”).</li>
+          <li class="mb-2">We compute team <strong>capacity hours</strong> until your deadline, split by role (FE / BE / DEVOPS).</li>
+          <li>If required &gt; available (overall or by role) → <span class="badge text-bg-danger">RED ZONE</span>.</li>
         </ol>
       </div>
     </div>
