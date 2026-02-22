@@ -65,11 +65,6 @@ def add_workdays(start: date, workdays: int) -> date:
 
 
 def required_roles_from_stack(tech_stack: Iterable[str]) -> set[str]:
-    """Very simple stack → required roles.
-
-    IMPORTANT: CI/CD is not treated as requiring a DevOps role.
-    DevOps is only required when true infra stack is selected.
-    """
     s = {x.strip().lower() for x in tech_stack if isinstance(x, str)}
     req: set[str] = set()
 
@@ -79,8 +74,8 @@ def required_roles_from_stack(tech_stack: Iterable[str]) -> set[str]:
     if any(k in s for k in ["django", "flask", "fastapi", "backend", "node", "express", "api"]):
         req.add("BE")
 
-    # DevOps required only for infra keywords (NOT ci/cd)
-    if any(k in s for k in ["aws", "gcp", "azure", "docker", "k8s", "kubernetes", "terraform", "devops"]):
+    # DevOps ONLY when infra is explicitly selected
+    if _has_devops_stack(tech_stack) or ("devops" in s):
         req.add("DEVOPS")
 
     if not req:
@@ -88,10 +83,18 @@ def required_roles_from_stack(tech_stack: Iterable[str]) -> set[str]:
     return req
 
 
+
 def _has_devops_stack(tech_stack: Iterable[str]) -> bool:
-    """True if stack implies real infra work."""
     s = {x.strip().lower() for x in tech_stack if isinstance(x, str)}
     return any(k in s for k in ["aws", "gcp", "azure", "docker", "k8s", "kubernetes", "terraform"])
+
+def _has_light_devops_work(tech_stack: Iterable[str]) -> bool:
+    """True if the project likely needs some build/deploy/config work even without infra keywords."""
+    s = {x.strip().lower() for x in tech_stack if isinstance(x, str)}
+    return any(k in s for k in ["django", "flask", "fastapi", "node", "express", "react", "vue", "angular"])
+
+
+
 
 
 def compute_capacity_hours_by_role(devs: list[Dev], working_days_until_deadline: int) -> dict[str, float]:
@@ -202,7 +205,8 @@ Rules:
 - Values must be numbers between 0 and 1 (floats are fine).
 - The three values must sum to 1.0 (within rounding).
 - If a role is not required (not in required_roles), set it to 0 unless the stack truly implies it.
-- Do NOT allocate DEVOPS unless infra stack implies it (aws/gcp/azure/docker/k8s/terraform/devops).
+- Allocate DEVOPS for true infra work when infra keywords are present.
+- Even without infra keywords, allocate a small DEVOPS slice (typically 0.05-0.12) for build/deploy/config/CI unless this is clearly a tiny throwaway script.
 
 Inputs:
 required_roles={req_list}
@@ -241,22 +245,55 @@ def compute_role_split_fractions(
 ) -> dict[str, float]:
     """Return role fractions that sum to 1.
 
-    Key behavior to STOP false DevOps:
-    - If stack doesn't imply infra AND DEVOPS isn't required, DEVOPS is forced to 0.
-    - Gemini may suggest a split, but we clamp DEVOPS away unless infra is actually present.
+    Practical goals:
+    - Avoid unrealistic *zero frontend* when the project is clearly a web app.
+    - Avoid unrealistic *zero DevOps*: even without explicit infra, most web apps need some deploy/config/CI.
+      Keep DevOps small unless infra keywords are present.
+
+    This stays deterministic and stable even if Gemini output is noisy.
     """
     infra = _has_devops_stack(tech_stack)
-    devops_allowed = infra or ("DEVOPS" in required_roles)
+    light_devops = _has_light_devops_work(tech_stack)
+
+    # DevOps is always allowed at least as a small slice for web apps.
+    devops_allowed = infra or light_devops or ("DEVOPS" in required_roles)
+
+    ef = max(1, min(10, int(estimated_features_count)))
+    td = max(1, min(10, int(tech_difficulty)))
+    ic = max(1, min(10, int(integration_complexity)))
+
+    s = {x.strip().lower() for x in tech_stack if isinstance(x, str)}
+    explicit_fe = any(k in s for k in ["react", "vue", "angular", "nextjs", "next.js", "frontend", "ui"])
+
+    # Minimum FE fraction if FE is required.
+    min_fe = 0.0
+    if "FE" in required_roles:
+        min_fe = 0.35 if explicit_fe else 0.25
+
+    # Minimum DevOps fraction (baseline deploy/config), larger when infra exists or complexity is higher.
+    min_devops = 0.0
+    if devops_allowed:
+        if infra:
+            min_devops = 0.10
+        else:
+            min_devops = 0.06
+            if ic >= 7 or td >= 7 or ef >= 7:
+                min_devops = 0.10
+            elif ic >= 5 or td >= 6 or ef >= 6:
+                min_devops = 0.08
+
+    # Cap DevOps unless infra is present.
+    max_devops = 0.22 if infra else 0.14
 
     split = _gemini_role_split(
         required_roles=required_roles,
         tech_stack=tech_stack,
-        estimated_features_count=estimated_features_count,
-        tech_difficulty=tech_difficulty,
-        integration_complexity=integration_complexity,
+        estimated_features_count=ef,
+        tech_difficulty=td,
+        integration_complexity=ic,
     )
 
-    # Fallback: simple deterministic split (no forced DevOps)
+    # Fallback deterministic split
     if split is None:
         if required_roles == {"BE"}:
             split = {"FE": 0.0, "BE": 1.0, "DEVOPS": 0.0}
@@ -265,39 +302,56 @@ def compute_role_split_fractions(
         elif required_roles == {"DEVOPS"}:
             split = {"FE": 0.0, "BE": 0.0, "DEVOPS": 1.0}
         else:
-            # full-stack baseline (DevOps only if allowed)
             split = {"FE": 0.45, "BE": 0.55, "DEVOPS": 0.0}
-
         split = _normalize_split(split)
 
     # Enforce required role constraints for FE/BE
-    if "FE" not in required_roles and split["FE"] > 0:
-        split = {"FE": 0.0, "BE": split["BE"] + split["FE"], "DEVOPS": split["DEVOPS"]}
+    if "FE" not in required_roles and split.get("FE", 0.0) > 0:
+        split = {"FE": 0.0, "BE": split.get("BE", 0.0) + split.get("FE", 0.0), "DEVOPS": split.get("DEVOPS", 0.0)}
         split = _normalize_split(split)
 
-    if "BE" not in required_roles and split["BE"] > 0:
-        split = {"FE": split["FE"] + split["BE"], "BE": 0.0, "DEVOPS": split["DEVOPS"]}
+    if "BE" not in required_roles and split.get("BE", 0.0) > 0:
+        split = {"FE": split.get("FE", 0.0) + split.get("BE", 0.0), "BE": 0.0, "DEVOPS": split.get("DEVOPS", 0.0)}
         split = _normalize_split(split)
 
-    # HARD STOP: if DevOps isn't allowed, force it to 0 and move it into BE (or FE if no BE)
-    if not devops_allowed and split["DEVOPS"] > 0:
-        if "BE" in required_roles or ("BE" not in required_roles and "FE" in required_roles):
-            # prefer moving to BE when possible; otherwise FE
-            if "BE" in required_roles:
-                split = {"FE": split["FE"], "BE": split["BE"] + split["DEVOPS"], "DEVOPS": 0.0}
-            else:
-                split = {"FE": split["FE"] + split["DEVOPS"], "BE": split["BE"], "DEVOPS": 0.0}
-        else:
+    # --- Post-process for realism ---
+    split = _normalize_split(split)
+
+    # Enforce minimum FE
+    if min_fe > 0 and split["FE"] < min_fe:
+        need = min_fe - split["FE"]
+        from_be = min(need, split["BE"])
+        split = {"FE": split["FE"] + from_be, "BE": split["BE"] - from_be, "DEVOPS": split["DEVOPS"]}
+        need -= from_be
+        if need > 1e-9:
+            from_do = min(need, split["DEVOPS"])
+            split = {"FE": split["FE"] + from_do, "BE": split["BE"], "DEVOPS": split["DEVOPS"] - from_do}
+        split = _normalize_split(split)
+
+    # Enforce DevOps min/cap
+    if devops_allowed:
+        if min_devops > 0 and split["DEVOPS"] < min_devops:
+            need = min_devops - split["DEVOPS"]
+            from_be = min(need, split["BE"])
+            split = {"FE": split["FE"], "BE": split["BE"] - from_be, "DEVOPS": split["DEVOPS"] + from_be}
+            need -= from_be
+            if need > 1e-9:
+                from_fe = min(need, split["FE"])
+                split = {"FE": split["FE"] - from_fe, "BE": split["BE"], "DEVOPS": split["DEVOPS"] + from_fe}
+            split = _normalize_split(split)
+
+        if split["DEVOPS"] > max_devops:
+            extra = split["DEVOPS"] - max_devops
+            split = {"FE": split["FE"], "BE": split["BE"] + extra, "DEVOPS": max_devops}
+            split = _normalize_split(split)
+    else:
+        if split["DEVOPS"] > 0:
             split = {"FE": split["FE"], "BE": split["BE"] + split["DEVOPS"], "DEVOPS": 0.0}
-        split = _normalize_split(split)
-
-    # If DevOps is allowed but NOT required, keep it small unless infra exists.
-    if "DEVOPS" not in required_roles and infra:
-        # allow a small slice only when infra stack exists
-        split = {"FE": split["FE"], "BE": split["BE"], "DEVOPS": min(split["DEVOPS"], 0.15)}
-        split = _normalize_split(split)
+            split = _normalize_split(split)
 
     return split
+
+
 
 
 def _recommendation_from_delta(
@@ -359,8 +413,15 @@ def run_estimation(project: Project) -> Project:
     capacity_total = float(sum(capacity_by_role.values()))
 
     required_roles = required_roles_from_stack(project.tech_stack or [])
+    if "DEVOPS" in required_roles and not _has_devops_stack(project.tech_stack or []):
+        required_roles = {r for r in required_roles if r != "DEVOPS"}
+    # Realism: even without explicit infra keywords, web apps usually need some deploy/config/CI work.
+    # Treat DEVOPS as effectively required if the stack implies it and the split gives it non-trivial hours.
+    required_roles_effective = set(required_roles)
+    if _has_devops_stack(project.tech_stack or []) or _has_light_devops_work(project.tech_stack or []):
+        required_roles_effective.add("DEVOPS")
     have_roles = {d.role for d in devs}
-    missing = [r for r in sorted(required_roles) if r not in have_roles]
+    missing = [r for r in sorted(required_roles_effective) if r not in have_roles]
     if missing:
         reasons.append(f"Missing required roles for selected stack: {', '.join(missing)}.")
 
@@ -371,6 +432,10 @@ def run_estimation(project: Project) -> Project:
         tech_difficulty=marks["tech_difficulty"],
         integration_complexity=marks["integration_complexity"],
     )
+    # HARD STOP: if DevOps isn't required, force its effort share to 0
+    if "DEVOPS" not in required_roles:
+        split = {"FE": split.get("FE", 0.0), "BE": split.get("BE", 0.0) + split.get("DEVOPS", 0.0), "DEVOPS": 0.0}
+        split = _normalize_split(split)
     effort_by_role = {k: float(effort * split.get(k, 0.0)) for k in ["FE", "BE", "DEVOPS"]}
 
     # Compute deltas and recommendations.

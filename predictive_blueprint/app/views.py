@@ -96,6 +96,7 @@ def intake(request: HttpRequest) -> JsonResponse:
             "project_id": project.id,
             "red_zone": project.red_zone,
             "red_reasons": project.red_reasons,
+            "gemini": {"ok": bool(marks.get("gemini_ok", False)), "error": marks.get("gemini_error")},
             "marks": {
                 "complexity_score": project.complexity_score,
                 "estimated_features_count": project.estimated_features_count,
