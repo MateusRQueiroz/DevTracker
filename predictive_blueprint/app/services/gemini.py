@@ -1,13 +1,10 @@
-from __future__ import annotations
-
-import json
 import os
-from typing import Any
+import json
+import re
+from google import genai
 
-import requests
 
-
-DEFAULT_MARKS: dict[str, int] = {
+DEFAULT_MARKS = {
     "complexity_score": 4,
     "estimated_features_count": 4,
     "tech_difficulty": 4,
@@ -16,77 +13,72 @@ DEFAULT_MARKS: dict[str, int] = {
 }
 
 
-def _clamp_1_10(x: Any, default: int = 4) -> int:
-    try:
-        v = int(x)
-    except Exception:
-        return default
-    return max(1, min(10, v))
+def clean_json_response(text: str) -> str:
+    text = text.strip()
+
+    # Remove markdown fences if present
+    text = re.sub(r"^```json", "", text, flags=re.IGNORECASE)
+    text = re.sub(r"^```", "", text)
+    text = re.sub(r"```$", "", text)
+
+    match = re.search(r"\{.*\}", text, re.DOTALL)
+    return match.group(0) if match else text
 
 
-def get_project_marks(*, title: str, description: str, tech_stack: list[str]) -> dict[str, int]:
-    """Return 5 marks, each 1..10, from Gemini.
-
-    If GEMINI_API_KEY is missing or Gemini fails, returns safe defaults.
-    """
-
-    api_key = os.getenv("GEMINI_API_KEY", "").strip()
-    model = os.getenv("GEMINI_MODEL", "gemini-1.5-flash-latest").strip()
-
-    # allow either "models/xxx" or "xxx"
-    if model.startswith("models/"):
-        model = model[len("models/"):]
-
-    if not api_key:
-        return dict(DEFAULT_MARKS)
-
-    prompt = (
-        "You are a project estimation assistant. "
-        "Given the project inputs, output ONLY valid JSON with these integer keys (1-10): "
-        "complexity_score, estimated_features_count, tech_difficulty, integration_complexity, uncertainty_factor. "
-        "No markdown, no explanations, no extra keys.\n\n"
-        f"Title: {title}\n"
-        f"Description: {description}\n"
-        f"Tech stack: {', '.join(tech_stack)}\n"
-    )
-
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
-    body = {
-        "contents": [{"parts": [{"text": prompt}]}],
-        "generationConfig": {
-            "temperature": 0.2,
-            "maxOutputTokens": 120,
-        },
-    }
+def get_complexity_marks(
+    title: str,
+    description: str,
+    tech_stack: list[str],
+) -> dict:
 
     try:
-        resp = requests.post(url, json=body, timeout=20)
-        resp.raise_for_status()
-        data = resp.json()
+        api_key = os.getenv("GEMINI_API_KEY")
+        if not api_key:
+            print("Gemini error: API key not found")
+            return DEFAULT_MARKS
 
-        text = (
-            data.get("candidates", [{}])[0]
-            .get("content", {})
-            .get("parts", [{}])[0]
-            .get("text", "")
-            .strip()
+        client = genai.Client(api_key=api_key)
+
+        prompt = f"""
+You are a senior software architect.
+
+Analyze the following project and return ONLY valid JSON.
+
+Return this exact schema:
+
+{{
+  "complexity_score": int (1-10),
+  "estimated_features_count": int (1-10),
+  "tech_difficulty": int (1-10),
+  "integration_complexity": int (1-10),
+  "uncertainty_factor": int (1-10)
+}}
+
+Project Title:
+{title}
+
+Project Description:
+{description}
+
+Tech Stack:
+{", ".join(tech_stack)}
+"""
+
+        # NOTE: Gemini 1.5 model IDs may be deprecated/shutdown for many API keys.
+        # Allow overriding via env var without changing code.
+        model_name = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+
+        response = client.models.generate_content(
+            model=model_name,
+            contents=prompt,
         )
 
-        parsed = json.loads(text)
-        return {
-            "complexity_score": _clamp_1_10(parsed.get("complexity_score"), DEFAULT_MARKS["complexity_score"]),
-            "estimated_features_count": _clamp_1_10(
-                parsed.get("estimated_features_count"),
-                DEFAULT_MARKS["estimated_features_count"],
-            ),
-            "tech_difficulty": _clamp_1_10(parsed.get("tech_difficulty"), DEFAULT_MARKS["tech_difficulty"]),
-            "integration_complexity": _clamp_1_10(
-                parsed.get("integration_complexity"),
-                DEFAULT_MARKS["integration_complexity"],
-            ),
-            "uncertainty_factor": _clamp_1_10(parsed.get("uncertainty_factor"), DEFAULT_MARKS["uncertainty_factor"]),
-        }
+        raw_text = response.text
+        cleaned = clean_json_response(raw_text)
+        parsed = json.loads(cleaned)
+
+        return parsed
 
     except Exception as e:
-        print("Gemini error:", repr(e))
-        return dict(DEFAULT_MARKS)
+        print("Gemini error:", e)
+        return DEFAULT_MARKS

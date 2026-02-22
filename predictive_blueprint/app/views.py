@@ -8,7 +8,7 @@ from django.http import JsonResponse, HttpRequest
 from django.views.decorators.csrf import csrf_exempt
 
 from app.models import Dev, Project
-from app.services.gemini import get_project_marks
+from app.services.gemini import get_complexity_marks
 from app.services.estimator import run_estimation
 
 
@@ -80,7 +80,7 @@ def intake(request: HttpRequest) -> JsonResponse:
 
         Dev.objects.create(project=project, role=role, seniority=seniority)
 
-    marks = get_project_marks(title=title, description=description, tech_stack=tech_stack)
+    marks = get_complexity_marks(title=title, description=description, tech_stack=tech_stack)
     project.complexity_score = marks["complexity_score"]
     project.estimated_features_count = marks["estimated_features_count"]
     project.tech_difficulty = marks["tech_difficulty"]

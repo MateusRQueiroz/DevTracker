@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+import json
 import math
+import os
+import re
 from datetime import date, timedelta
 from typing import Iterable
 
-from app.models import Dev, Project
+from google import genai
 
+from app.models import Dev, Project
 
 # ------------------------------
 # Calibration knobs (easy to tune)
@@ -20,7 +24,7 @@ HOURS_PER_POINT = {
     "estimated_features_count": 14.0,
     "tech_difficulty": 20.0,
     "integration_complexity": 12.0,
-    "uncertainty_factor": 8.0,  # treated as contingency/buffer hours
+    "uncertainty_factor": 8.0,
 }
 
 SENIORITY_MULT = {
@@ -61,7 +65,11 @@ def add_workdays(start: date, workdays: int) -> date:
 
 
 def required_roles_from_stack(tech_stack: Iterable[str]) -> set[str]:
-    """Very simple stack → required roles."""
+    """Very simple stack → required roles.
+
+    IMPORTANT: CI/CD is not treated as requiring a DevOps role.
+    DevOps is only required when true infra stack is selected.
+    """
     s = {x.strip().lower() for x in tech_stack if isinstance(x, str)}
     req: set[str] = set()
 
@@ -71,32 +79,19 @@ def required_roles_from_stack(tech_stack: Iterable[str]) -> set[str]:
     if any(k in s for k in ["django", "flask", "fastapi", "backend", "node", "express", "api"]):
         req.add("BE")
 
-    if any(
-        k in s
-        for k in [
-            "aws",
-            "gcp",
-            "azure",
-            "docker",
-            "k8s",
-            "kubernetes",
-            "ci",
-            "cd",
-            "terraform",
-            "devops",
-        ]
-    ):
+    # DevOps required only for infra keywords (NOT ci/cd)
+    if any(k in s for k in ["aws", "gcp", "azure", "docker", "k8s", "kubernetes", "terraform", "devops"]):
         req.add("DEVOPS")
 
-    # Default to backend if nothing obvious is selected.
     if not req:
         req.add("BE")
     return req
 
 
 def _has_devops_stack(tech_stack: Iterable[str]) -> bool:
+    """True if stack implies real infra work."""
     s = {x.strip().lower() for x in tech_stack if isinstance(x, str)}
-    return any(k in s for k in ["aws", "gcp", "azure", "docker", "k8s", "kubernetes", "terraform", "ci", "cd"])
+    return any(k in s for k in ["aws", "gcp", "azure", "docker", "k8s", "kubernetes", "terraform"])
 
 
 def compute_capacity_hours_by_role(devs: list[Dev], working_days_until_deadline: int) -> dict[str, float]:
@@ -144,6 +139,98 @@ def compute_adjusted_effort_score(
     return max(1, min(10, score))
 
 
+def _extract_json_object(text: str) -> str:
+    """Extract first {...} JSON object from model output."""
+    text = (text or "").strip()
+    text = re.sub(r"^```(?:json)?", "", text, flags=re.IGNORECASE).strip()
+    text = re.sub(r"```$", "", text).strip()
+    m = re.search(r"\{.*\}", text, re.DOTALL)
+    return m.group(0) if m else text
+
+
+def _clamp01(x: float) -> float:
+    return max(0.0, min(1.0, float(x)))
+
+
+def _normalize_split(split: dict[str, float]) -> dict[str, float]:
+    fe = _clamp01(split.get("FE", 0.0))
+    be = _clamp01(split.get("BE", 0.0))
+    devops = _clamp01(split.get("DEVOPS", 0.0))
+    total = fe + be + devops
+    if total <= 0.0:
+        return {"FE": 0.0, "BE": 1.0, "DEVOPS": 0.0}
+    return {"FE": fe / total, "BE": be / total, "DEVOPS": devops / total}
+
+
+def _gemini_role_split(
+    *,
+    required_roles: set[str],
+    tech_stack: Iterable[str],
+    estimated_features_count: int,
+    tech_difficulty: int,
+    integration_complexity: int,
+) -> dict[str, float] | None:
+    """Ask Gemini for a FE/BE/DEVOPS fraction split that sums to 1.0.
+
+    Returns None on any failure so caller can fallback.
+    """
+    api_key = os.getenv("GEMINI_API_KEY", "").strip()
+    if not api_key:
+        return None
+
+    model = os.getenv("GEMINI_MODEL", "gemini-1.5-flash-latest").strip()
+    if model.startswith("models/"):
+        model = model[len("models/") :]
+
+    ef = max(1, min(10, int(estimated_features_count)))
+    td = max(1, min(10, int(tech_difficulty)))
+    ic = max(1, min(10, int(integration_complexity)))
+
+    stack_list = [str(x).strip() for x in tech_stack if isinstance(x, str) and str(x).strip()]
+    req_list = sorted(required_roles)
+
+    prompt = f"""
+You are a software delivery estimator.
+
+Task:
+Given the project's required roles and tech stack plus 3 difficulty marks, output the labor split fractions
+for FE, BE, and DEVOPS.
+
+Rules:
+- Output MUST be valid JSON ONLY (no markdown, no commentary).
+- Keys must be exactly: "FE", "BE", "DEVOPS"
+- Values must be numbers between 0 and 1 (floats are fine).
+- The three values must sum to 1.0 (within rounding).
+- If a role is not required (not in required_roles), set it to 0 unless the stack truly implies it.
+- Do NOT allocate DEVOPS unless infra stack implies it (aws/gcp/azure/docker/k8s/terraform/devops).
+
+Inputs:
+required_roles={req_list}
+tech_stack={stack_list}
+estimated_features_count={ef}  (1..10)
+tech_difficulty={td}           (1..10)
+integration_complexity={ic}    (1..10)
+
+Output JSON example:
+{{"FE": 0.35, "BE": 0.55, "DEVOPS": 0.10}}
+""".strip()
+
+    try:
+        client = genai.Client(api_key=api_key)
+        resp = client.models.generate_content(model=model, contents=prompt)
+        raw = getattr(resp, "text", None) or ""
+        data = json.loads(_extract_json_object(raw))
+
+        split = {
+            "FE": float(data.get("FE", data.get("fe", 0.0)) or 0.0),
+            "BE": float(data.get("BE", data.get("be", 0.0)) or 0.0),
+            "DEVOPS": float(data.get("DEVOPS", data.get("devops", 0.0)) or 0.0),
+        }
+        return _normalize_split(split)
+    except Exception:
+        return None
+
+
 def compute_role_split_fractions(
     *,
     required_roles: set[str],
@@ -152,59 +239,65 @@ def compute_role_split_fractions(
     tech_difficulty: int,
     integration_complexity: int,
 ) -> dict[str, float]:
-    """Heuristic role split that varies with stack + marks.
+    """Return role fractions that sum to 1.
 
-    Returns fractions that sum to ~1 for roles in {FE, BE, DEVOPS}.
+    Key behavior to STOP false DevOps:
+    - If stack doesn't imply infra AND DEVOPS isn't required, DEVOPS is forced to 0.
+    - Gemini may suggest a split, but we clamp DEVOPS away unless infra is actually present.
     """
-    fe = 0.0
-    be = 0.0
-    devops = 0.0
+    infra = _has_devops_stack(tech_stack)
+    devops_allowed = infra or ("DEVOPS" in required_roles)
 
-    if required_roles == {"BE"}:
-        be, devops = 0.85, 0.15
-    elif required_roles == {"FE"}:
-        fe, devops = 0.85, 0.15
-    elif required_roles == {"DEVOPS"}:
-        devops = 1.0
-    else:
-        # default full-stack split
-        fe, be = 0.40, 0.50
-        devops = 0.10
+    split = _gemini_role_split(
+        required_roles=required_roles,
+        tech_stack=tech_stack,
+        estimated_features_count=estimated_features_count,
+        tech_difficulty=tech_difficulty,
+        integration_complexity=integration_complexity,
+    )
 
-    # More features → more FE/BE work
-    feat_boost = (max(1, min(10, estimated_features_count)) - 1) / 9.0  # 0..1
-    fe += 0.05 * feat_boost
-    be += 0.05 * feat_boost
+    # Fallback: simple deterministic split (no forced DevOps)
+    if split is None:
+        if required_roles == {"BE"}:
+            split = {"FE": 0.0, "BE": 1.0, "DEVOPS": 0.0}
+        elif required_roles == {"FE"}:
+            split = {"FE": 1.0, "BE": 0.0, "DEVOPS": 0.0}
+        elif required_roles == {"DEVOPS"}:
+            split = {"FE": 0.0, "BE": 0.0, "DEVOPS": 1.0}
+        else:
+            # full-stack baseline (DevOps only if allowed)
+            split = {"FE": 0.45, "BE": 0.55, "DEVOPS": 0.0}
 
-    # More tech difficulty → more BE (architecture / tricky APIs)
-    td_boost = (max(1, min(10, tech_difficulty)) - 1) / 9.0
-    be += 0.08 * td_boost
+        split = _normalize_split(split)
 
-    # Integration complexity + devops stack → more DevOps
-    ic_boost = (max(1, min(10, integration_complexity)) - 1) / 9.0
-    devops += 0.12 * ic_boost
-    if _has_devops_stack(tech_stack):
-        devops += 0.08
+    # Enforce required role constraints for FE/BE
+    if "FE" not in required_roles and split["FE"] > 0:
+        split = {"FE": 0.0, "BE": split["BE"] + split["FE"], "DEVOPS": split["DEVOPS"]}
+        split = _normalize_split(split)
 
-    # If FE not required, move FE share to BE.
-    if "FE" not in required_roles and fe > 0:
-        be += fe
-        fe = 0.0
+    if "BE" not in required_roles and split["BE"] > 0:
+        split = {"FE": split["FE"] + split["BE"], "BE": 0.0, "DEVOPS": split["DEVOPS"]}
+        split = _normalize_split(split)
 
-    # If BE not required, move BE share to FE.
-    if "BE" not in required_roles and be > 0:
-        fe += be
-        be = 0.0
+    # HARD STOP: if DevOps isn't allowed, force it to 0 and move it into BE (or FE if no BE)
+    if not devops_allowed and split["DEVOPS"] > 0:
+        if "BE" in required_roles or ("BE" not in required_roles and "FE" in required_roles):
+            # prefer moving to BE when possible; otherwise FE
+            if "BE" in required_roles:
+                split = {"FE": split["FE"], "BE": split["BE"] + split["DEVOPS"], "DEVOPS": 0.0}
+            else:
+                split = {"FE": split["FE"] + split["DEVOPS"], "BE": split["BE"], "DEVOPS": 0.0}
+        else:
+            split = {"FE": split["FE"], "BE": split["BE"] + split["DEVOPS"], "DEVOPS": 0.0}
+        split = _normalize_split(split)
 
-    # If DEVOPS not required and there is no devops stack, keep a tiny devops slice for CI/deploy.
-    if "DEVOPS" not in required_roles and not _has_devops_stack(tech_stack):
-        devops = min(devops, 0.05)
+    # If DevOps is allowed but NOT required, keep it small unless infra exists.
+    if "DEVOPS" not in required_roles and infra:
+        # allow a small slice only when infra stack exists
+        split = {"FE": split["FE"], "BE": split["BE"], "DEVOPS": min(split["DEVOPS"], 0.15)}
+        split = _normalize_split(split)
 
-    # Normalize.
-    total = fe + be + devops
-    if total <= 0:
-        return {"FE": 0.0, "BE": 1.0, "DEVOPS": 0.0}
-    return {"FE": fe / total, "BE": be / total, "DEVOPS": devops / total}
+    return split
 
 
 def _recommendation_from_delta(
@@ -259,7 +352,9 @@ def run_estimation(project: Project) -> Project:
         reasons.append("No developers provided (team is empty).")
 
     capacity_by_role = (
-        compute_capacity_hours_by_role(devs, working_days) if working_days > 0 and devs else {"FE": 0.0, "BE": 0.0, "DEVOPS": 0.0}
+        compute_capacity_hours_by_role(devs, working_days)
+        if working_days > 0 and devs
+        else {"FE": 0.0, "BE": 0.0, "DEVOPS": 0.0}
     )
     capacity_total = float(sum(capacity_by_role.values()))
 
@@ -279,7 +374,9 @@ def run_estimation(project: Project) -> Project:
     effort_by_role = {k: float(effort * split.get(k, 0.0)) for k in ["FE", "BE", "DEVOPS"]}
 
     # Compute deltas and recommendations.
-    delta_by_role = {k: float(effort_by_role.get(k, 0.0) - capacity_by_role.get(k, 0.0)) for k in ["FE", "BE", "DEVOPS"]}
+    delta_by_role = {
+        k: float(effort_by_role.get(k, 0.0) - capacity_by_role.get(k, 0.0)) for k in ["FE", "BE", "DEVOPS"]
+    }
     rec_by_role = {
         k: _recommendation_from_delta(role=k, delta_hours=delta_by_role[k], working_days=working_days)
         for k in ["FE", "BE", "DEVOPS"]
@@ -301,13 +398,15 @@ def run_estimation(project: Project) -> Project:
                 f"Estimated finish date {finish_date.isoformat()} exceeds deadline {project.deadline.isoformat()}."
             )
 
-    # Red zone if any role deficit (or if overall deficit).
+    # Red zone checks
     overall_deficit = capacity_total < effort
-    role_deficits = [r for r, dh in delta_by_role.items() if dh > 0.01]
+
+    # IMPORTANT: only count role deficits for REQUIRED roles (prevents false DEVOPS red-zone)
+    role_deficits = [r for r, dh in delta_by_role.items() if (r in required_roles and dh > 0.01)]
+
     if overall_deficit:
         reasons.append(f"Capacity shortfall: need {effort:.0f}h, have {capacity_total:.0f}h until deadline.")
     if role_deficits:
-        # Make it explicit: even if total hours are fine, wrong mix can still be a red zone.
         details = ", ".join(f"{r}: {delta_by_role[r]:.0f}h" for r in role_deficits)
         reasons.append(f"Role shortfall by labor category (hours): {details}.")
 
