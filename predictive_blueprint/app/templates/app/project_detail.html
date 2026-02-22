@@ -154,9 +154,57 @@
             <canvas id="roleChart" height="200"></canvas>
           </div>
           <div class="col-md-5">
+          <h2 class="h6 text-uppercase">Project inputs</h2>
+          <div class="row g-3">
+          <div class="col-12">
+            <div class="text-secondary small">Description</div>
+            <div>{% if project.description %}{{ project.description }}{% else %}<span class="text-secondary">(none)</span>{% endif %}</div>
+          </div>
+          <div class="col-md-6">
+            <div class="text-secondary small">Tech stack</div>
+            <div class="d-flex flex-wrap gap-2">
+              {% for s in project.tech_stack %}
+                <span class="badge text-bg-light border">{{ s }}</span>
+              {% empty %}
+                <span class="text-secondary">(none)</span>
+              {% endfor %}
+            </div>
+          </div>
+          <div class="col-12">
+            <div class="h6 text-secondary">Team</div>
 
+            <!-- <div id="editTeamList" class="d-flex flex-column gap-2"></div>
+
+            <button id="editAddMemberBtn" type="button" class="btn btn-sm btn-outline-secondary mt-2">
+              + Add team member
+            </button> -->
+          </div>
+          <div class="col-md-6 mt-0">
+            <!-- <div class="text-secondary small">Team</div> -->
+            <div class="table-responsive">
+              <table class="table table-sm align-middle mb-0 mt-0">
+                <thead>
+                  <tr>
+                    <th>Role</th>
+                    <th>Seniority</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for d in team %}
+                    <tr>
+                      <td class="mono">{{ d.role }}</td>
+                      <td class="mono">{{ d.seniority }}</td>
+                    </tr>
+                  {% empty %}
+                    <tr><td colspan="2" class="text-secondary">No team members.</td></tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
             {% if project.labor_recommendation_by_role %}
-              <div class="mt-2">
+              <div class="mt-4">
                 <h3 class="h6 text-uppercase">Labor adjustment</h3>
                 <div class="table-responsive">
                   <table class="table table-sm align-middle mb-0">
@@ -190,55 +238,6 @@
 
     <div class="card shadow-sm mt-4">
       <div class="card-body p-4">
-        <h2 class="h6 text-uppercase">Project inputs</h2>
-        <div class="row g-3">
-          <div class="col-12">
-            <div class="text-secondary small">Description</div>
-            <div>{% if project.description %}{{ project.description }}{% else %}<span class="text-secondary">(none)</span>{% endif %}</div>
-          </div>
-          <div class="col-md-6">
-            <div class="text-secondary small">Tech stack</div>
-            <div class="d-flex flex-wrap gap-2">
-              {% for s in project.tech_stack %}
-                <span class="badge text-bg-light border">{{ s }}</span>
-              {% empty %}
-                <span class="text-secondary">(none)</span>
-              {% endfor %}
-            </div>
-          </div>
-          <div class="col-12">
-            <label class="form-label">Team</label>
-
-            <!-- <div id="editTeamList" class="d-flex flex-column gap-2"></div>
-
-            <button id="editAddMemberBtn" type="button" class="btn btn-sm btn-outline-secondary mt-2">
-              + Add team member
-            </button> -->
-          </div>
-          <div class="col-md-6">
-            <!-- <div class="text-secondary small">Team</div> -->
-            <div class="table-responsive">
-              <table class="table table-sm align-middle mb-0">
-                <thead>
-                  <tr>
-                    <th>Role</th>
-                    <th>Seniority</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {% for d in team %}
-                    <tr>
-                      <td class="mono">{{ d.role }}</td>
-                      <td class="mono">{{ d.seniority }}</td>
-                    </tr>
-                  {% empty %}
-                    <tr><td colspan="2" class="text-secondary">No team members.</td></tr>
-                  {% endfor %}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </div>
 
         <hr class="my-4" />
 
