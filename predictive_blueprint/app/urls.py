@@ -6,7 +6,7 @@ urlpatterns = [
     path("", views.home, name="home"),
     path("dashboard/", views.dashboard, name="dashboard"),
     path("projects/<int:project_id>/", views.project_page, name="project_page"),
-
+    path("api/project/", views.intake),
     # JSON API
     path("api/intake/", views.intake),
     path("api/project/<int:project_id>/", views.project_detail),

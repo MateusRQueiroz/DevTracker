@@ -249,24 +249,31 @@
         <div id="editProjectError" class="alert alert-danger d-none"></div>
         <div id="editProjectOk" class="alert alert-success d-none">Saved. Refreshing…</div>
 
-        <form id="editProjectForm" data-project-id="{{ project.id }}">
+        <!-- FIXED: works with JS fetch AND works as normal form POST -->
+        <form id="editProjectForm"
+              data-project-id="{{ project.id }}"
+              method="post"
+              action="/api/project/{{ project.id }}/">
+          {% csrf_token %}
+
           <div class="row g-3">
             <div class="col-12">
               <label class="form-label">Title</label>
-              <input id="editTitle" class="form-control" value="{{ project.title|escape }}" />
+              <input id="editTitle" name="title" class="form-control" value="{{ project.title|escape }}" />
             </div>
             <div class="col-12">
               <label class="form-label">Description</label>
-              <textarea id="editDescription" class="form-control" rows="3">{{ project.description|default_if_none:"" }}</textarea>
+              <textarea id="editDescription" name="description" class="form-control" rows="3">{{ project.description|default_if_none:"" }}</textarea>
             </div>
             <div class="col-md-6">
               <label class="form-label">Deadline</label>
-              <input id="editDeadline" type="date" class="form-control" value="{{ deadline_iso }}" />
+              <input id="editDeadline" name="deadline" type="date" class="form-control" value="{{ deadline_iso }}" />
             </div>
             <div class="col-md-6">
               <label class="form-label">Tech stack (comma-separated)</label>
               <input
                 id="editTechStack"
+                name="tech_stack"
                 class="form-control"
                 value="{% for s in project.tech_stack %}{% if not forloop.first %}, {% endif %}{{ s }}{% endfor %}"
               />
@@ -287,7 +294,6 @@
   </div>
 
 <script>
-  // Values from server-side render
   const effort = Number('{{ project.effort_hours|default_if_none:0 }}');
   const capacity = Number('{{ project.capacity_hours|default_if_none:0 }}');
 

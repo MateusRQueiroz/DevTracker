@@ -6,6 +6,23 @@
   const qsa = (sel) => Array.from(document.querySelectorAll(sel));
 
   // ============================================================
+  // CSRF HELPER (Django)
+  // ============================================================
+
+  function getCookie(name) {
+    const v = document.cookie.split(';').map((s) => s.trim());
+    for (const item of v) {
+      if (item.startsWith(name + '=')) return decodeURIComponent(item.slice(name.length + 1));
+    }
+    return null;
+  }
+
+  function csrfHeader() {
+    const csrftoken = getCookie('csrftoken');
+    return csrftoken ? { 'X-CSRFToken': csrftoken } : {};
+  }
+
+  // ============================================================
   // INTAKE FORM
   // ============================================================
 
@@ -75,8 +92,7 @@
     }
 
     function readTechStack() {
-      const checked = qsa('input[type="checkbox"][id^="stack"]:checked')
-        .map((el) => el.value);
+      const checked = qsa('input[type="checkbox"][id^="stack"]:checked').map((el) => el.value);
 
       const extra = (qs('#stackExtra')?.value || '')
         .split(',')
@@ -117,12 +133,16 @@
       };
 
       submitBtn.disabled = true;
-      formStatus.textContent = 'Estimating...';
+      if (formStatus) formStatus.textContent = 'Estimating...';
 
       try {
-        const resp = await fetch('/api/intake/', {
+        // Intake creates a project -> POST to /api/project/
+        const resp = await fetch(`/api/project/`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type': 'application/json',
+            ...csrfHeader(),
+          },
           body: JSON.stringify(payload),
         });
 
@@ -131,10 +151,10 @@
 
         window.location.href = `/projects/${data.project_id}/`;
       } catch (err) {
-        showError(err.message);
+        showError(err.message || String(err));
       } finally {
         submitBtn.disabled = false;
-        formStatus.textContent = '';
+        if (formStatus) formStatus.textContent = '';
       }
     });
   }
@@ -155,6 +175,9 @@
       try {
         const resp = await fetch(`/api/project/${id}/`, {
           method: 'DELETE',
+          headers: {
+            ...csrfHeader(),
+          },
         });
 
         const data = await resp.json();
@@ -166,7 +189,7 @@
           location.reload();
         }
       } catch (err) {
-        alert(err.message);
+        alert(err.message || String(err));
         btn.disabled = false;
       }
     });
@@ -200,20 +223,23 @@
       try {
         const resp = await fetch(`/api/project/${id}/`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type': 'application/json',
+            ...csrfHeader(),
+          },
           body: JSON.stringify(payload),
         });
 
         const data = await resp.json();
         if (!resp.ok || !data.ok) throw new Error(data.error || 'Save failed');
 
-        location.reload();
+        // Bust cache
+        window.location.href = `/projects/${id}/?r=${Date.now()}`;
       } catch (err) {
-        alert(err.message);
+        alert(err.message || String(err));
       } finally {
         saveBtn.disabled = false;
       }
     });
   }
-
 })();

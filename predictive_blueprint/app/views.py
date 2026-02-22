@@ -4,7 +4,7 @@ import json
 from datetime import date
 
 from django.db.models import Q
-from django.shortcuts import render
+from django.shortcuts import render,redirect
 from django.http import JsonResponse, HttpRequest
 from django.views.decorators.csrf import csrf_exempt
 from django.db import transaction
@@ -151,44 +151,37 @@ def project_detail(request: HttpRequest, project_id: int) -> JsonResponse:
         )
 
     if request.method in {"PUT", "PATCH", "POST"}:
-        try:
-            payload = json.loads(request.body.decode("utf-8") or "{}")
-        except Exception:
-            return _json_error("Invalid JSON body")
+        # Detect whether this came from fetch(JSON) or a browser form POST
+        is_json = bool(request.content_type and "application/json" in request.content_type)
+
+        # 1) Parse payload
+        if is_json:
+            return JsonResponse(
+                {
+                    "ok": True,
+                    "project_id": project.id,
+                    "red_zone": project.red_zone,
+                    "red_reasons": project.red_reasons,
+                }
+            )
+        else:
+            payload = dict(request.POST.items())
+            if "tech_stack" in payload:
+                payload["tech_stack"] = [
+                    s.strip()
+                    for s in (payload.get("tech_stack") or "").split(",")
+                    if s.strip()
+                ]
 
         rerun_gemini = False
 
+        # 2) Apply updates
         if "title" in payload:
             title = str(payload.get("title", "")).strip()
             if not title:
                 return _json_error("Title cannot be empty")
             project.title = title
             rerun_gemini = True
-        
-        if "team" in payload:
-            team = payload.get("team", [])
-            if not isinstance(team, list):
-                return _json_error("'team' must be a list")
-
-            # Validate first (so we don't partially update)
-            validated = []
-            for member in team:
-                role = str(member.get("role", "")).strip().upper()
-                seniority = str(member.get("seniority", "")).strip().upper()
-
-                if role not in {"FE", "BE", "DEVOPS"}:
-                    return _json_error("Team role must be one of: FE, BE, DEVOPS")
-                if seniority not in {"JUNIOR", "MID", "SENIOR"}:
-                    return _json_error("Team seniority must be one of: JUNIOR, MID, SENIOR")
-
-                validated.append((role, seniority))
-
-            # Replace team atomically
-            with transaction.atomic():
-                project.devs.all().delete()
-                for role, seniority in validated:
-                    Dev.objects.create(project=project, role=role, seniority=seniority)
-
 
         if "description" in payload:
             project.description = str(payload.get("description", "")).strip()
@@ -210,6 +203,7 @@ def project_detail(request: HttpRequest, project_id: int) -> JsonResponse:
             except ValueError:
                 return _json_error("Deadline must be YYYY-MM-DD")
 
+        # 3) Save + recompute
         project.save()
 
         if rerun_gemini:
@@ -227,14 +221,18 @@ def project_detail(request: HttpRequest, project_id: int) -> JsonResponse:
 
         run_estimation(project)
 
-        return JsonResponse({"ok": True, "project_id": project.id})
+        # 4) Response: JSON for fetch, redirect for browser form
+        if is_json:
+            return JsonResponse({"ok": True, "project_id": project.id})
+
+        # browser form POST: redirect back to HTML page
+        return redirect("project_page", project_id=project.id)
 
     if request.method == "DELETE":
         project.delete()
         return JsonResponse({"ok": True})
 
     return _json_error("Method not allowed", 405)
-
 
 # ------------------------------
 # Frontend pages (HTML)
